@@ -1,5 +1,5 @@
 // The sidebar: its tabs, options menu, file groups and commit views.
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, shared, setShared } from "herdr";
 import { fileTree, timeAgo } from "../git/model.js";
@@ -314,6 +314,8 @@ export const sidebarMethods = {
 
   commitButtonLabel() {
     if (this.operation === "commit") return "Committing…";
+    if (this.operation === "commit-push") return "Committing…";
+    if (this.operation === "push") return "Pushing…";
     if (this.operation === "amend") return "Amending…";
     return this.commitMode === "amend" ? "Amend" : "Commit";
   },
@@ -354,6 +356,25 @@ export const sidebarMethods = {
         }),
       );
     }
+    // Actions, not modes: they run now with the current message, then the
+    // menu closes. Commit & Push commits first and pushes right after; a
+    // failed push keeps the commit and says so under the box.
+    options.push(
+      MenuOption({
+        id: "action-commit-push",
+        icon: "commit",
+        label: "Commit & Push",
+        selected: false,
+        onClick: (cx) => this.commit(cx, { push: true }),
+      }),
+      MenuOption({
+        id: "action-push",
+        icon: "external-link",
+        label: "Push",
+        selected: false,
+        onClick: (cx) => this.push(cx),
+      }),
+    );
     return Menu({
       id: "commit-menu",
       open: this.commitMenuOpen,
@@ -438,6 +459,44 @@ export const sidebarMethods = {
       .child(div().flex_1().min_w(0).truncate().child(row.name));
   },
 
+  // The commit checkbox, Zed-style: checked = the file takes part in the next
+  // commit. In this panel a commit is what is staged, so checked means staged:
+  // toggling stages or unstages that one file, and the check reflects Git's
+  // answer after the index action lands. Conflicts never join on their own.
+  renderCommitCheck(file, scope) {
+    const t = theme();
+    const checked =
+      scope === "staged" ? true : scope === "unstaged" ? false : Boolean(file.staged);
+    const actionable =
+      !file.conflict && (scope === "mixed" ? Boolean(file.staged) !== Boolean(file.unstaged) : true);
+    const toggle = (cx) => {
+      cx.stop_propagation();
+      const target = scope === "staged" ? "unstage" : "stage";
+      this.indexAction(target, file.path, cx);
+    };
+    return div()
+      .id(`check-${scope}-${file.path}`)
+      .w(14)
+      .h(14)
+      .flex_none()
+      .rounded(3)
+      .border_1()
+      .border_color(checked ? t.accent : t.border)
+      .when(checked, (el) => el.bg(t.accent))
+      .child(
+        checked
+          ? svg("mods/better-changes/icons/check.svg").size(10).text_color(t.background)
+          : div(),
+      )
+      .when(actionable, (el) =>
+        el
+          .cursor_pointer()
+          .hover((s) => s.border_color(t.accent))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => toggle(cx)),
+      );
+  },
+
   fileRow(file, scope, depth) {
     const t = theme();
     const parts = file.path.split("/");
@@ -457,7 +516,9 @@ export const sidebarMethods = {
       depth,
       selected: open?.path === file.path && open?.scope === scope,
       onClick: (cx) => this.pick(file, scope, cx),
-    }).child(FileIcon({ icons: this.fileIcons, path: `${this.root}/${file.path}`, color: t.muted, t }));
+    })
+      .child(this.renderCommitCheck(file, scope))
+      .child(FileIcon({ icons: this.fileIcons, path: `${this.root}/${file.path}`, color: t.muted, t }));
     if (tree) row.child(div().flex_1().min_w(0).truncate().child(name));
     else
       row.child(
