@@ -31,28 +31,23 @@ actions mods are also published on their own in
 
 Ask your Herdr agent:
 
-> Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/VladTemp27/herdr-orca
+> Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/hershey1990/herdr-orca
 
-Then two mods by [munza](https://github.com/munza/herdr-mods) that the layout uses but this repo
-doesn't include:
-
-> Add this mod: https://github.com/munza/herdr-mods/tree/main/better-changes (in the layout's Changes slot)
->
-> Add this mod: https://github.com/munza/herdr-mods/tree/main/better-config
+Everything is vendored — no separate mods to install. `better-changes` comes from
+[munza/herdr-mods](https://github.com/munza/herdr-mods) (Apache-2.0, see THIRD_PARTY.md) with the
+AI commit button added on top.
 
 By hand:
 
 1. Copy `layouts/orca.json` into `~/.config/herdr-app/layouts/` and each folder in `mods/` into
    `~/.config/herdr-app/mods/`. Rename anything whose name you already use.
-2. Install Better Changes and Better Config from munza/herdr-mods. Set Better Changes'
-   `"place"` to `"none"` in its `mod.json`: the layout already has a slot for it.
-3. Merge `keys.json` into `~/.config/herdr-app/keys.json` (its `layout:orca` section applies only
+2. Merge `keys.json` into `~/.config/herdr-app/keys.json` (its `layout:orca` section applies only
    while this layout shows).
-4. Run `herdr-app check ~/.config/herdr-app/mods/<name>` for each mod, then
+3. Run `herdr-app check ~/.config/herdr-app/mods/<name>` for each mod, then
    `herdr-app do layout.switch '{"name":"orca"}'`. `ctrl-shift-l` switches back.
 
-Needs `git` and a logged-in `gh`. Usage limits read the `claude` and `codex` CLIs; Automations uses
-the `herdr-automations` CLI; desktop notifications use `terminal-notifier` when installed. Built and
+Needs `git` and a logged-in `gh`. Usage limits read the `claude` and `codex` CLIs; desktop
+notifications use `terminal-notifier` when installed. Built and
 tested on macOS with Herdr 0.1.13.
 
 ## Updating this repo
