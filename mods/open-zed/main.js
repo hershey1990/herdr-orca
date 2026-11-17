@@ -3,46 +3,21 @@
 // machine is refused with a clear message instead of opening the wrong thing.
 //
 // Run it with `mod.open {name: "open-zed"}`: from a key, or a menu row.
-// Windows note: `zed` on PATH is a bash shim that fails outside its own
-// folder; the installed binary this mod launches is `Zed.exe` beside it.
+// Windows note: the `zed` on PATH is a bash shim that fails outside its own
+// folder, so zed.js locates the real relay (`bin\Zed.exe`) instead.
 import { View, div } from "gpui-kit";
 import { v_flex } from "gpui-base";
-import { closeOverlay, exec, focused, home, spaces, theme, window as appWindow } from "herdr";
-
-// Locations the Zed installer uses, relative to the profile root. The CLI on
-// PATH is a bash shim that cannot run from another cwd, so look for the real
-// files: `bin\Zed.exe` is the relay CLI; the root `Zed.exe` is the GUI.
-const WINDOWS_CANDIDATES = [
-  "AppData/Local/Programs/Zed/bin/Zed.exe",
-  "AppData/Local/Programs/Zed/Zed.exe",
-  "Program Files/Zed/bin/Zed.exe",
-  "Program Files/Zed/Zed.exe",
-];
-
-// A single-quoted PowerShell string.
-const ps = (s) => `'${s.replaceAll("'", "''")}'`;
-
-async function zedCommand() {
-  if (appWindow()?.platform === "windows") {
-    const userHome = home().replace(/\\/g, "/");
-    for (const rel of WINDOWS_CANDIDATES) {
-      const exe = `${userHome}/${rel}`;
-      const r = await exec("powershell", ["-NoProfile", "-Command", `Test-Path '${ps(exe)}'`]);
-      if (r.code === 0 && r.stdout.trim() === "True") return exe;
-    }
-    return null;
-  }
-  const r = await exec("zed", ["--version"]).catch(() => null);
-  return r?.code === 0 ? "zed" : null;
-}
+import { closeOverlay, exec, focused, props, spaces, theme, window as appWindow } from "herdr";
+import { zedCommand, ps } from "./zed.js";
 
 async function launch(folder) {
   const zed = await zedCommand();
-  if (!zed) throw new Error("Zed was not found. Install it from https://zed.dev, or reopen this menu once it is on PATH.");
+  if (!zed) throw new Error("Zed was not found. Install it from https://zed.dev, then try again.");
   if (appWindow()?.platform === "windows") {
     // Start-Process never waits: Zed's relay blocks for seconds on a cold
     // start (first launch of the day), and the GUI exe blocks for good.
-    const r = await exec("powershell", ["-NoProfile", "-Command", `Start-Process -FilePath '${ps(zed)}' -ArgumentList '${ps(folder)}'`], { timeout: 15000 });
+    // ps() adds the quotes; adding more yields ''path'', an empty FilePath.
+    const r = await exec("powershell", ["-NoProfile", "-Command", `Start-Process -FilePath ${ps(zed)} -ArgumentList ${ps(folder)}`], { timeout: 15000 });
     if (r.code !== 0) throw new Error((r.stderr || `PowerShell exited with ${r.code}`).trim().slice(0, 300));
     return;
   }
