@@ -9,6 +9,8 @@ limits and live ports.
 **Personal fork of [VladTemp27/herdr-orca](https://github.com/VladTemp27/herdr-orca).** Differences
 from upstream (`personal` branch):
 
+![The Changes panel with the commit checkboxes and the AI button](docs/screenshot-changes.png)
+
 - **AI commit button** — `better-changes` (vendored whole from munza/herdr-mods) gains an
   **AI ✦** button beside Commit: drafts the commit message from the uncommitted changes with a
   coding-agent CLI (opencode, claude, copilot, codex, gemini) or a direct API (deepseek,
@@ -16,6 +18,16 @@ from upstream (`personal` branch):
   field; you review and press Commit. Also on `ctrl-shift-i` (`better-changes.ai`). Ported from
   [hershey1990/herdr-git-changes-ai](https://github.com/hershey1990/herdr-git-changes-ai)
   (MIT), which stays the standalone panel for any layout.
+- **Commit checkboxes and push options** — every changed file gets a checkbox
+  (screenshot above): checked = the file takes part in the next commit (it is
+  what staged means here); toggling stages or unstages that one file,
+  Zed-style. The commit button's ▾ menu adds **Commit & Push** (a failed push
+  keeps the commit and says so) and **Push**.
+- **Open in Zed** — the + menu ([screenshot](docs/screenshot-zed-menu.png))
+  gains an **Open in Zed** row when Zed is installed (probed once every 5
+  minutes). Local folders only; the launcher finds the real relay
+  `bin\Zed.exe` (the `zed` on PATH is a bash shim) and starts it without
+  waiting, so a cold first launch never blocks the window.
 - **Sidebar nav removed** — no Automations / Issues / Mod settings column; mods `automations`,
   `sidebar-nav` deleted, `better-config` not vendored. The footer's Settings button opens
   Herdr's own settings.
