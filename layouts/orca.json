@@ -22,16 +22,6 @@
               "window_drag": true
             },
             {
-              "id": "sidebar-nav",
-              "type": "block",
-              "size": {
-                "px": 101
-              },
-              "content": {
-                "mod": "sidebar-nav"
-              }
-            },
-            {
               "id": "sidebar-lists",
               "type": "column",
               "children": [
