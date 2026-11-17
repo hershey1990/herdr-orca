@@ -14,6 +14,6 @@ for mod in mods/*/; do
     jq 'del(.settings)' "mods/$name/mod.json" > "mods/$name/mod.json.tmp" && mv "mods/$name/mod.json.tmp" "mods/$name/mod.json"
   fi
 done
-# The layout is orca-2 in the author's Herdr; here it's orca.
-jq 'del(.cloned_from)' "$HOME_DIR/layouts/orca-2.json" > layouts/orca.json
+# The layout lives at layouts/orca.json in this fork.
+jq 'del(.cloned_from)' "$HOME_DIR/layouts/orca.json" > layouts/orca.json
 echo "Synced $(ls mods | wc -l | tr -d ' ') mods and layouts/orca.json"

@@ -1,10 +1,24 @@
-# Orca for Herdr
+# Orca for Herdr (personal fork)
 
 A Herdr Desktop layout after the Orca app: projects with nested worktrees and their issue/PR
 badges, each one's agents and sub-agents right under it, spaces you can put to sleep (and agents
 resumed after a restart), a resource meter, a hover card per worktree, in-app GitHub issues and pull requests, a Create worktree dialog
 (from a branch, an issue, a PR or a new name), Files and Git changes panels, run actions, usage
 limits and live ports.
+
+**Personal fork of [VladTemp27/herdr-orca](https://github.com/VladTemp27/herdr-orca).** Differences
+from upstream (`personal` branch):
+
+- **AI commit button** — `better-changes` (vendored whole from munza/herdr-mods) gains an
+  **AI ✦** button beside Commit: drafts the commit message from the uncommitted changes with a
+  coding-agent CLI (opencode, claude, copilot, codex, gemini) or a direct API (deepseek,
+  opencode-go, `api_key` in `mods/better-changes/config.json`, gitignored). It only fills the
+  field; you review and press Commit. Also on `ctrl-shift-i` (`better-changes.ai`). Ported from
+  [hershey1990/herdr-git-changes-ai](https://github.com/hershey1990/herdr-git-changes-ai).
+- **Sidebar nav removed** — no Automations / Issues / Mod settings column; mods `automations`,
+  `sidebar-nav` deleted, `better-config` not vendored. The footer's Settings button opens
+  Herdr's own settings.
+- `sync.sh` reads `layouts/orca.json` (upstream hardcodes the author's `orca-2`).
 
 ![Orca](preview.png)
 
