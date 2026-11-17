@@ -1,9 +1,11 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared } from "herdr";
+import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, exec } from "herdr";
 
 // The last agents each machine reported, shown at once while knownAgents() checks again.
 const KNOWN = "new-menu.agents";
+// Whether Zed is installed here (cached for 5 minutes, shared across copies).
+const KNOWN_ZED = "new-menu.zed";
 
 function shortcut(name) {
   const k = keys().find(b => b.section === "global" && b.action === name);
@@ -37,6 +39,21 @@ export default class NewMenu extends View {
       catch { this.failed = true; }
       cx.notify();
     });
+    // The Zed row shows only when Zed is installed on this computer. One
+    // probe per process, cached: the menu reopens often, Zed rarely moves.
+    cx.spawn(async cx => {
+      try {
+        const seen = shared("new-menu.zed");
+        if (seen?.checkedAt && Date.now() - seen.checkedAt < 300000) {
+          this.zed = seen.installed;
+        } else {
+          const r = await exec("powershell", ["-NoProfile", "-Command", "if (Get-Command zed -ErrorAction SilentlyContinue) { $p = (Get-Command zed).Source; if ($p -and (Test-Path (Join-Path (Split-Path $p) 'Zed.exe'))) { 'true' } elseif ($p) { 'true' } else { 'false' } } else { $h = \"$env:LOCALAPPDATA\\Programs\\Zed\"; if (Test-Path \"$h\\bin\\Zed.exe\") { 'true' } elseif (Test-Path \"$h\\Zed.exe\") { 'true' } else { 'false' } }"]);
+          this.zed = r.code === 0 && r.stdout.trim() === "true";
+          setShared(KNOWN_ZED, { checkedAt: Date.now(), installed: this.zed });
+        }
+      } catch { this.zed = false; }
+      cx.notify();
+    });
   }
   row(id, icon, name, action, hint = "", enabled = true) {
     const t = theme();
@@ -61,6 +78,7 @@ export default class NewMenu extends View {
       })
       .child(this.row("terminal", svg("icons/shell.svg").size(14), "Terminal", () => run("tab.new", { space: space?.id }), shortcut("tab.new")))
       .child(this.row("vscode", svg("mods/open-vscode/vscode.svg").size(14), "Open in VS Code", () => run("mod.open", { name: "open-vscode" }), shortcut("mod.open:open-vscode"), Boolean(space)))
+      .when(Boolean(this.zed), el => el.child(this.row("zed", svg("mods/workspace-chrome/folder.svg").size(14), "Open in Zed", () => run("mod.open", { name: "open-zed" }), "", Boolean(space))))
       .child(div().px(9).pt(8).pb(4).text_size(11).text_color(t.dim).child("Start an agent"))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar()
         .children(choices.map((a, i) => this.row(a.key, a.tint ? svg(a.icon).size(14).text_color(t.foreground) : image(a.icon).size(14), a.name,
