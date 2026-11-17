@@ -14,7 +14,8 @@ from upstream (`personal` branch):
   coding-agent CLI (opencode, claude, copilot, codex, gemini) or a direct API (deepseek,
   opencode-go, `api_key` in `mods/better-changes/config.json`, gitignored). It only fills the
   field; you review and press Commit. Also on `ctrl-shift-i` (`better-changes.ai`). Ported from
-  [hershey1990/herdr-git-changes-ai](https://github.com/hershey1990/herdr-git-changes-ai).
+  [hershey1990/herdr-git-changes-ai](https://github.com/hershey1990/herdr-git-changes-ai)
+  (MIT), which stays the standalone panel for any layout.
 - **Sidebar nav removed** — no Automations / Issues / Mod settings column; mods `automations`,
   `sidebar-nav` deleted, `better-config` not vendored. The footer's Settings button opens
   Herdr's own settings.
