@@ -45,7 +45,9 @@ at 12,16 over the sidebar. The root background is `canvas`; terminals have 14×1
 
 Popups and dialogs: the Issues table (92% × 90%, frameless), the issue/PR viewer (86% × 90%), the
 worktree hover card (340px window beside the row), **Create worktree** (560 × 780), Add project,
-Project settings, Excalidraw (cmd-shift-e), Open in VS Code (cmd-g) and context menus (`my-menu`).
+Project settings, Excalidraw, Open in VS Code and Open in Zed (the Zed row only when Zed is
+installed on this computer; `open-zed` finds it under `%LOCALAPPDATA%\Programs\Zed`), and context
+menus (`my-menu`).
 
 ## How it behaves
 
