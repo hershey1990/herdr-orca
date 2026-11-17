@@ -244,6 +244,41 @@ export const gitMethods = {
     });
   },
 
+
+  // Push without committing. The panel's own Push option in the commit menu.
+  push(cx) {
+    if (!this.root || this.busy || this.loading || this.conflicts || this.contextKey() !== this.context) return;
+    const { root, on, context } = this;
+    const amend = false;
+    this.busy = true;
+    this.operation = "push";
+    this.note = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const upstream = await this.git(
+          ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+          root,
+          on,
+        );
+        const ref = upstream.code === 0 ? upstream.stdout.trim() : null;
+        const pushArgs = ref ? ["push"] : ["push", "-u", "origin", "HEAD"];
+        const attempt = await this.git(pushArgs, root, on);
+        if (attempt.code !== 0)
+          throw Error((attempt.stderr || attempt.stdout).trim().slice(0, 300));
+        this.reload = Date.now();
+        setShared("better-changes.reload", { root, on: on ?? null, at: this.reload });
+      } catch (error) {
+        if (this.isCurrent(context)) this.note = `Push failed: ${error.message}`;
+      } finally {
+        this.busy = false;
+        this.operation = null;
+        this.refresh(cx);
+        cx.notify();
+      }
+    });
+  },
+
   // ── History ───────────────────────────────────────────────────────────────
 
   resetCommits() {
@@ -378,15 +413,17 @@ export const gitMethods = {
   },
 
   // Both use the index as it is, never `-a`. A failure keeps the draft, and a
-  // success keeps anything typed while it ran.
-  commit(cx) {
+  // success keeps anything typed while it ran. With `{ push: true }` a successful
+  // commit is pushed right away; a failed push keeps the commit and says so.
+  commit(cx, opts = {}) {
     if (!this.canCommit()) return;
+    const push = Boolean(opts.push);
     const { root, on, context } = this;
     const draft = this.message;
     const amend = this.commitMode === "amend";
     const expected = this.amendHead;
     this.busy = true;
-    this.operation = amend ? "amend" : "commit";
+    this.operation = amend ? "amend" : push ? "commit-push" : "commit";
     this.commitMenuOpen = false;
     this.note = null;
     cx.notify();
@@ -404,6 +441,18 @@ export const gitMethods = {
           on,
         );
         if (result.code !== 0) throw Error((result.stderr || result.stdout).trim());
+        let pushed = null;
+        if (push) {
+          const upstream = await this.git(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            root,
+            on,
+          );
+          const ref = upstream.code === 0 ? upstream.stdout.trim() : null;
+          const pushArgs = ref ? ["push"] : ["push", "-u", "origin", "HEAD"];
+          const attempt = await this.git(pushArgs, root, on);
+          if (attempt.code !== 0) pushed = (attempt.stderr || attempt.stdout).trim().slice(0, 300);
+        }
         this.reload = Date.now();
         setShared("better-changes.reload", { root, on: on ?? null, at: this.reload });
         if (this.isCurrent(context)) {
@@ -413,10 +462,11 @@ export const gitMethods = {
           }
           this.commitMode = "commit";
           this.amendHead = null;
+          if (pushed) this.note = `Committed, but the push failed: ${pushed}`;
         }
       } catch (error) {
         if (this.isCurrent(context))
-          this.note = `${amend ? "Amend" : "Commit"} failed: ${error.message}`;
+          this.note = `${push ? "Commit & Push" : amend ? "Amend" : "Commit"} failed: ${error.message}`;
       } finally {
         this.busy = false;
         this.operation = null;
