@@ -16,8 +16,6 @@ at 12,16 over the sidebar. The root background is `canvas`; terminals have 14×1
 
 - **Sidebar** (268px, 44–480, foldable with `cmd-b`):
   - `brand` (46px): Herdr's `workspace-chrome` brand row.
-  - `sidebar-nav` (101px): Orca-style links, **Automations**, **Issues** and **Mod settings**, each
-    opening its mod as a popup (`automations`, `issues`, munza's `better-config`).
   - **Spaces** (`better-sidebar`): one section per machine (a 30px bar: chevron, monitor or
     server icon, bold name, a green dot while connected, **+**; a 1px rule above every machine but
     the first), and inside it your **folders** (tinted blocks: chevron, colored folder icon, name,
@@ -155,8 +153,13 @@ Project settings, Excalidraw (cmd-shift-e), Open in VS Code (cmd-g) and context 
   Code is colored by the **Code colors** setting (Mod settings): Editor (default; a soft palette for
   light and dark), Terminal (the theme's ANSI colors) or Off. `.env`, `.env.*`, `*.env` and `.envrc`
   highlight as shell.
-- **Changes**: staging, commit/amend, history, diffs in one centre tab (Better Changes' own docs).
-- **Automations**: scheduled agent prompts, through the `herdr-automations` CLI.
+- **Changes**: staging, commit/amend, history, diffs in one centre tab (Better Changes' own docs),
+  plus an **AI ✦** button beside Commit (from hershey1990's Changes AI, MIT): drafts the commit
+  message from the uncommitted changes — branch, recent subjects, full diff, excerpts of untracked
+  files — with a coding-agent CLI (opencode, claude, copilot, codex, gemini) or a direct API
+  (deepseek, opencode-go; `api_key` in `mods/better-changes/config.json`, not shipped). It only
+  fills the field; you review, edit and press Commit yourself. Errors show in red under the box.
+  Config is re-read on every click.
 - Keys (merge `keys.json`): `cmd-n` new worktree, `cmd-shift-n` add project, `cmd-g` VS Code,
   `cmd-shift-e` Excalidraw; in this layout `cmd-shift-a` toggles Agents, `cmd-shift-b` the right
   panel, `cmd-alt-]` / `cmd-alt-[` next / previous space, `cmd-]` / `cmd-[` next / previous agent, `cmd-w` / `cmd-shift-w` close a tab / pane. Closing a tab by key asks first ("Close tab
@@ -165,8 +168,9 @@ Project settings, Excalidraw (cmd-shift-e), Open in VS Code (cmd-g) and context 
 ## Built from
 
 `layouts/orca.json` and 23 mods in `mods/`. Shipped mods it uses as-is: `workspace-chrome`, `files`,
-`changes`, `pane`, `confirm`, `picker`, `machine-add`. Installed separately from munza/herdr-mods:
-`better-changes` (the `changes` slot, `"place": "none"`) and `better-config`.
+`changes`, `pane`, `confirm`, `picker`, `machine-add`. Vendored, from other repos: `better-changes`
+(the `changes` slot, `"place": "none"`, from munza/herdr-mods, with the AI commit button ported
+from hershey1990/herdr-git-changes-ai).
 
 - `better-sidebar` (munza's Better Sidebar, modified; views by `props.view`: spaces, `agents`,
   `footer`, `panel-toggle`, `card`, `groups`, `note`; `views/space-agents.js` draws agents in the spaces
@@ -175,8 +179,8 @@ Project settings, Excalidraw (cmd-shift-e), Open in VS Code (cmd-g) and context 
   confirm): modified clones of Herdr's mods.
 - `issues` (table, viewer, `projects.js`, `pr.js`, `start.js`, `prefill.sh`), `new-worktree` (dialog, `git.js`,
   `hooks.js`), `project-settings` (with the same `hooks.js`: keep the two copies identical),
-  `files-open-with` (+ `file-icons` for Material icons), `t3-actions`, `sidebar-nav`,
-  `automations`, `usage-limits` (`helpers/*.sh`), `live-ports`, `desktop-notifications`,
+  `files-open-with` (+ `file-icons` for Material icons), `t3-actions`,
+  `usage-limits` (`helpers/*.sh`), `live-ports`, `desktop-notifications`,
   `hibernate` (`core.js` snapshot/stop/start, `ui.js` dialogs, `settings.js` shared with
   `better-sidebar`), `resources` (`measure.js`),
   `new-project`, `open-vscode`, `excalidraw`.
@@ -193,7 +197,7 @@ Project settings, Excalidraw (cmd-shift-e), Open in VS Code (cmd-g) and context 
 - Programs: `git`, `gh` (logged in), `curl` (avatars), `osascript`/`pbcopy`/`open` on macOS,
   `claude` / `codex` CLIs for usage limits and resuming, `lsof` for ports and Codex sessions,
   `ps` / `sysctl` / `kill` / `pgrep` for the resource meter and sleeping, `terminal-notifier` if
-  installed, `code` for VS Code, `herdr-automations`, `hc` and `herdr-app`.
+  installed, `code` for VS Code, `hc` and `herdr-app`.
 
 ## Watch out
 
