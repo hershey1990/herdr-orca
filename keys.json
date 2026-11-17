@@ -16,6 +16,13 @@
     "cmd-]": "better-sidebar.next-agent",
     "cmd-[": "better-sidebar.prev-agent",
     "cmd-w": "my-tabs.close-tab",
-    "cmd-shift-w": "my-tabs.close-pane"
+    "cmd-shift-w": "my-tabs.close-pane",
+    "ctrl-shift-a": "layout.toggle:agents",
+    "ctrl-shift-s": "better-sidebar.toggle-panel",
+    "ctrl-alt-]": "better-sidebar.next-space",
+    "ctrl-alt-[": "better-sidebar.prev-space",
+    "ctrl-]": "better-sidebar.next-agent",
+    "ctrl-[": "better-sidebar.prev-agent",
+    "ctrl-shift-i": "better-changes.ai"
   }
 }
