@@ -60,7 +60,10 @@ function items(p, git) {
         // my-tabs checks it: the last tab of a worktree space removes the worktree instead.
         ["Close", `my-tabs.close-tab:${tg.id}`, {}],
       ];
-    case "space":
+    case "space": {
+      // The right-clicked space's checkout, not the focused one: the menu's
+      // git state describes it, and the branch picker must open on it too.
+      const folder = (spaces().find((x) => x.id === tg.id) ? place(spaces().find((x) => x.id === tg.id)) : null);
       return [
         ["Rename", "space.rename", { id: tg.id }],
         ...(git && tg.id ? [["Switch branch…", "branch-picker", { space: tg.id, folder, machine: (spaces().find((x) => x.id === tg.id)?.machine) ?? null }]] : []),
@@ -75,6 +78,7 @@ function items(p, git) {
         // A worktree space closes by removing its worktree (the dialog checks for unsaved work first).
         git === "linked" ? ["Close & remove worktree", "worktree", { space: tg.id, action: "remove" }] : ["Close", "space.close", { id: tg.id }],
       ];
+    }
     default:
       return [
         // At home, not in the focused (maybe worktree) folder: a second space there shares its removal.
