@@ -133,17 +133,18 @@ export default class Panel {
     const space = spaces().find(s => s.active), f = focused();
     const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
     const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-    const paneCwd = pane?.cwd || f?.cwd || null;
-    const base = space?.folder || this.root || null;
-    let cwd;
-    if (base) {
-      cwd = paneCwd && inside(paneCwd, base) ? paneCwd : base;
-    } else {
-      // No anchor anywhere: follow the pane, unless it looks like a bare
-      // drive or the user profile (an agent's launch folder, not a project).
-      const suspicious = !paneCwd || /^[a-z]:[\\/]?(users[\\/][^\\/]+)?[\\/]?$/i.test(paneCwd.trim());
-      cwd = suspicious ? paneCwd : paneCwd;
-    }
+    // A mod pane has no cwd of its own; focused() then reports the app's own
+    // working folder (often the home), which is not a project root. Only a
+    // terminal pane's folder may lead the tree.
+    const paneCwd = pane ? (pane.terminal ? pane.cwd || f?.cwd || null : null) : f?.cwd || null;
+    // The panel's own root outranks the space's folder within one space: a
+    // space an agent created from the home reports folder = home, and the
+    // tree must not jump there when a viewer pane takes the keyboard. On a
+    // space switch the stale root is dropped (sameSpace fails) and the
+    // space's folder anchors fresh.
+    const sameSpace = space?.id === this.context?.space;
+    const base = (sameSpace && this.root) || space?.folder || this.root || null;
+    const cwd = base ? (paneCwd && inside(paneCwd, base) ? paneCwd : base) : paneCwd;
     return { cwd, on, space: space?.id };
   }
 
@@ -184,7 +185,8 @@ export default class Panel {
     if (next !== this.context?.key) {
       if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file });
       const saved = this.saved.get(next);
-      this.context = { key: next, cwd, on }; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set(saved?.folders);
+      const space = spaces().find(s => s.active);
+      this.context = { key: next, cwd, on, space: space?.id }; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set(saved?.folders);
       this.pending = new Set(); this.marks = {}; this.ignored = new Set(); this.show(null); this.watched = null; this.error = null; this.limited = false;
       this.loading = false;
       if (saved?.file) this.show(saved.file, cx);
