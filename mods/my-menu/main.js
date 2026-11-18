@@ -63,6 +63,7 @@ function items(p, git) {
     case "space":
       return [
         ["Rename", "space.rename", { id: tg.id }],
+        ...(git && tg.id ? [["Switch branch…", "branch-picker", { space: tg.id, folder, machine: (spaces().find((x) => x.id === tg.id)?.machine) ?? null }]] : []),
         ...(git ? [["Project settings…", "project-settings", { space: tg.id }]] : []),
         ...(git ? [["New worktree", "worktree", { space: tg.id, action: "new" }], ["Open worktree", "worktree", { space: tg.id, action: "open" }]] : []),
         // hibernate mod: stop a space's programs (on this computer or another machine), or start them again.
@@ -137,6 +138,7 @@ export default class Menu extends View {
         props: { view: "groups", mode: "move", key, name: s?.name, machine: s?.machine ?? null } });
     }
     else if (it[1] === "note") openOverlay({ mod: "better-sidebar", kind: "dialog", width: 460, height: 290, props: { view: "note", space: it[2].space } });
+    else if (it[1] === "branch-picker") openOverlay({ mod: "branch-picker", kind: "dialog", width: 380, height: 520, props: it[2] });
     else if (it[1] === "hibernate") setShared("hibernate.request", { nonce: Date.now(), ...it[2] });
     else run(it[1], it[2]);
   }
