@@ -9,7 +9,7 @@
 // folder name), and a failure shows git's error instead of guessing.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { exec, props, closeOverlay, theme, run, spaces, panes } from "herdr";
+import { exec, props, closeOverlay, theme, run, spaces, panes, window } from "herdr";
 
 // A single-quoted PowerShell string.
 const ps = (s) => `'${s.replaceAll("'", "''")}'`;
@@ -66,30 +66,44 @@ export default class BranchPicker extends View {
       this.folder = p.folder;
       this.on = p.machine ?? null;
     } else {
-      // No props (a key, `mod.open`): the active space's checkout. Its first
-      // terminal defines it, as everywhere else in Herdr.
+      // No props (a key, `mod.open`): the active space's checkout. Prefer the
+      // space's own folder over a pane's cwd — a space's agent often runs in
+      // C:\ or the user profile, which is not where the checkout lives. Only
+      // a pane whose cwd is inside the space's folder may refine the root.
       const space = spaces().find((s) => s.active);
       const ps = panes();
       const tabIDs = new Set((space?.tabs ?? []).map((t) => t.id));
-      const pane = ps.find((x) => tabIDs.has(x.tab) && x.cwd);
+      const inSpace = ps.find((x) => tabIDs.has(x.tab) && x.cwd && x.cwd === space?.folder);
       this.space = space?.id ?? null;
-      this.folder = pane?.cwd ?? space?.folder ?? null;
+      this.folder = inSpace?.cwd ?? space?.folder ?? null;
       this.on = space?.machine ?? null;
     }
     if (!this.folder) { this.error = "This space has no folder."; return; }
-    this.load(cx);
+    // cx.spawn integrates the promise with Herdr's event loop; a bare async
+    // call is never resumed here (its notify would never run).
+    cx.spawn(async (cx) => { await this.load(cx); });
   }
 
   async load(cx) {
     const folder = this.folder, on = this.on;
-    // One git for the list: branches with their tips, the worktree list (who
-    // holds what), and a compact status count. All read-only.
+    // Not a repository fails fast: the branch command would refuse in ~100ms,
+    // but a status in C:\ scans the whole drive and would hang this dialog.
+    const repo = await gitIn(["rev-parse", "--is-inside-work-tree"], folder, on, 8000);
+    if (this.folder !== folder) return;
+    if (repo.code !== 0 || repo.stdout.trim() !== "true") {
+      this.error = "This folder is not a git repository.";
+      cx.notify();
+      return;
+    }
+    // One pass for the list: branches with their tips, the worktree list (who
+    // holds what), and a compact status count. All read-only; a slow status
+    // only loses the count.
     const [branches, worktrees, status] = await Promise.all([
       gitIn(["branch", "--format=%(objectname:short)|%(HEAD)|%(refname:short)|%(upstream:short)|%(subject)", "-q"], folder, on),
       gitIn(["worktree", "list", "--porcelain"], folder, on),
-      gitIn(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=normal"], folder, on, 30000),
+      gitIn(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=normal"], folder, on, 10000).catch(() => null),
     ]);
-    if (this.closed) return;
+    if (this.folder !== folder) return;
     if (branches.code !== 0) { this.error = branches.stderr || "Cannot read branches."; cx.notify(); return; }
     this.branches = branches.stdout.split("\n").filter(Boolean).map((line) => {
       const [hash, head, name, upstream, ...rest] = line.split("|");
@@ -105,7 +119,7 @@ export default class BranchPicker extends View {
       const ref = br.replace(/^refs\/heads\//, "");
       this.held.set(ref, wt);
     }
-    this.dirty = status.code === 0 ? status.stdout.split("\0").filter(Boolean).length : null;
+    this.dirty = status && status.code === 0 ? status.stdout.split("\0").filter(Boolean).length : null;
     cx.notify();
   }
 
@@ -154,13 +168,13 @@ export default class BranchPicker extends View {
         .when(this.dirty !== null, (el) => el.child(div().text_size(11).text_color(t.dim).child(`${this.dirty} uncommitted`))))
       .child(div().id("branch-filter").h(30).flex_none().px(9).flex().items_center().rounded(7).border_1().border_color(this.handle.focused ? t.accent : t.border)
         .child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
-      .child(div().id("branch-list").flex_1().min_h(0).relative()
-        .child(v_flex().absolute().inset_0().overflow_y_scroll().gap(1)
+      .child(div().id("branch-scroll").flex_1().min_h(0).relative()
+        .child(v_flex().id("branch-list").absolute().inset_0().overflow_y_scroll().gap(1)
           .children(list.map((b) => {
             const held = this.blocked(b.name);
             const disabled = Boolean(held) || b.current || Boolean(this.busy);
             return h_flex().id(`branch-${b.name}`).h(30).flex_none().px(9).gap(8).items_center().rounded(7)
-              .bg(b.current ? t.selected : undefined)
+              .when(b.current, (el) => el.bg(t.selected))
               .text_color(held ? t.dim : t.foreground)
               .when(!disabled, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)))
               .on_click((_e, cx) => this.switch(b, cx))
@@ -172,7 +186,7 @@ export default class BranchPicker extends View {
               .child(div().flex_none().text_size(10).text_color(t.dim).truncate().max_w(140).child(b.upstream || ""));
           }))
           .when(!list.length, (el) => el.child(div().p(10).text_color(t.dim).child(this.error ? "" : (this.branches ?? []).length ? "No branch matches." : this.busy ? "" : "Loading branches…"))))
-        .child(Scrollbar.vertical().absolute().inset_0()))
+        .child(Scrollbar.vertical("branch-list").absolute().inset_0()))
       .when(Boolean(this.error), (el) => el.child(div().flex_none().text_size(11).text_color(t.ansi1).whitespace_normal().child(this.error ?? "")));
   }
 }
