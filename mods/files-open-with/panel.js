@@ -11,19 +11,6 @@ import ICONS from "./icons.js";
 const norm = p => `${p}`.replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase();
 const inside = (p, base) => { const a = norm(p), b = norm(base); return a === b || a.startsWith(`${b}/`); };
 
-function location() {
-  const space = spaces().find(s => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  // The tree anchors on the space's folder. A focused pane somewhere else (an
-  // agent started in C:\, a pane with no folder) must not drag the tree to the
-  // OS root; a pane inside the project still leads, so cd-ing around follows
-  // as before. Spaces without a folder keep the old behavior.
-  const base = space?.folder, paneCwd = pane?.cwd || f?.cwd || null;
-  const cwd = base ? (paneCwd && inside(paneCwd, base) ? paneCwd : base) : paneCwd;
-  return { cwd, on, space: space?.id };
-}
-const key = () => JSON.stringify(location());
 const PER_FOLDER = 500, TOTAL = 5000;
 
 // Material icons: icons.js is a copy of file-icons' table; the SVGs stay in that mod.
@@ -99,12 +86,19 @@ async function listFolders(root, paths, on) {
     stdout = r.stdout;
   }
   const out = parseFolderRecords(stdout);
-  if (!out.has("")) throw new Error("Cannot list this folder");
+  // Every requested folder needs a record; only a requested-and-failed root
+  // fails the call (loadFolder asks for one subfolder, refresh asks for the
+  // root plus every expanded folder).
+  for (const p of paths) if (!out.has(p)) throw new Error("Cannot list this folder");
+  if (out.get("") === null) throw new Error("Cannot list this folder");
   return out;
 }
 
 function parseFolderRecords(stdout) {
-  const fields = stdout.split("\0"), out = new Map();
+  // PowerShell separates Write-Output calls with \r\n, which would prefix
+  // every record after the first with a stray line break; raw CRLF cannot
+  // occur inside a record (JSON escapes it), so strip it before splitting.
+  const fields = stdout.replace(/\r\n/g, "").split("\0"), out = new Map();
   for (let i = 0; i + 2 < fields.length; i += 1) {
     if (fields[i] !== "F") continue;
     const folder = fields[i + 1];
@@ -128,6 +122,35 @@ export default class Panel {
     cx.timer.every(10000, cx => this.refresh(cx));
   }
 
+  // Where the tree is rooted, and what it follows. The space's folder anchors
+  // the tree: a focused pane outside the project (an agent started in C:\, a
+  // pane with no folder) must not drag the tree to the OS root. A pane inside
+  // the project still leads, so cd-ing around follows as before. A space
+  // without a folder keeps whatever root the panel already showed, and only a
+  // pane inside that root may move it; the first load takes the focused
+  // pane's folder when it is not obviously an OS root.
+  location() {
+    const space = spaces().find(s => s.active), f = focused();
+    const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
+    const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
+    const paneCwd = pane?.cwd || f?.cwd || null;
+    const base = space?.folder || this.root || null;
+    let cwd;
+    if (base) {
+      cwd = paneCwd && inside(paneCwd, base) ? paneCwd : base;
+    } else {
+      // No anchor anywhere: follow the pane, unless it looks like a bare
+      // drive or the user profile (an agent's launch folder, not a project).
+      const suspicious = !paneCwd || /^[a-z]:[\\/]?(users[\\/][^\\/]+)?[\\/]?$/i.test(paneCwd.trim());
+      cwd = suspicious ? paneCwd : paneCwd;
+    }
+    return { cwd, on, space: space?.id };
+  }
+
+  key() {
+    return JSON.stringify(this.location());
+  }
+
   watch(root, cx) {
     if (this.on || this.watched === root) return;
     this.watched = root;
@@ -139,7 +162,7 @@ export default class Panel {
   }
 
   current(context) {
-    return this.context === context && key() === context.key;
+    return this.context === context && this.key() === context.key;
   }
 
   // Load one folder's entries into the panel state, pruning to the totals.
@@ -157,7 +180,7 @@ export default class Panel {
   }
 
   refresh(cx) {
-    const { cwd, on } = location(), next = key();
+    const { cwd, on } = this.location(), next = this.key();
     if (next !== this.context?.key) {
       if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file });
       const saved = this.saved.get(next);
@@ -245,7 +268,7 @@ export default class Panel {
 
   // A file opens in its own tab of this space (viewer.js), reused if already open.
   openTab(path, cx) {
-    openFile({ file: `${this.root}/${path}`, on: this.on, space: location().space }, cx);
+    openFile({ file: `${this.root}/${path}`, on: this.on, space: this.location().space }, cx);
   }
 
   // Right-click: which items apply (installed apps only), then the popup at the pointer.
@@ -285,7 +308,7 @@ export default class Panel {
   }
 
   render(cx) {
-    if (key() !== this.context?.key) this.refresh(cx);
+    if (this.key() !== this.context?.key) this.refresh(cx);
     const t = theme(), dark = Boolean(settings().dark);
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
