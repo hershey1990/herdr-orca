@@ -8,11 +8,20 @@ import { syntaxColors, languageFor } from "./syntax.js";
 import { available, menuHeight } from "./items.js";
 import ICONS from "./icons.js";
 
+const norm = p => `${p}`.replace(/[\\/]+/g, "/").replace(/\/$/, "").toLowerCase();
+const inside = (p, base) => { const a = norm(p), b = norm(base); return a === b || a.startsWith(`${b}/`); };
+
 function location() {
   const space = spaces().find(s => s.active), f = focused();
   const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
   const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on, space: space?.id };
+  // The tree anchors on the space's folder. A focused pane somewhere else (an
+  // agent started in C:\, a pane with no folder) must not drag the tree to the
+  // OS root; a pane inside the project still leads, so cd-ing around follows
+  // as before. Spaces without a folder keep the old behavior.
+  const base = space?.folder, paneCwd = pane?.cwd || f?.cwd || null;
+  const cwd = base ? (paneCwd && inside(paneCwd, base) ? paneCwd : base) : paneCwd;
+  return { cwd, on, space: space?.id };
 }
 const key = () => JSON.stringify(location());
 const PER_FOLDER = 500, TOTAL = 5000;
@@ -36,18 +45,77 @@ function icon(path, dir, open, dark) {
   return `${ICON_DIR}/${id ?? ICONS.file}.svg`;
 }
 
-async function directory(path, on) {
+// One process lists the root and every expanded folder of a refresh. Spawning
+// PowerShell per folder made the tree crawl: each call pays ~100ms of startup,
+// and refresh() ran them one after another. Output is folder records separated
+// by NULs: "F", the folder's path relative to the root ("" for the root), then
+// a compressed JSON array of {name, dir, link}. A folder that cannot be read
+// comes back as null and is skipped; the root failing fails the whole load.
+// Statements join with "; " (a bare newline inside -Command collapses), the
+// JSON is built into $json first (concatenating @(...) inside a string is a
+// parser trap), and PowerShell's NUL is the $([char]0) subexpression.
+const LIST_SCRIPT_WINDOWS = [
+  '$root = \'__ROOT__\'',
+  '$dirs = \'__DIRS__\' | ConvertFrom-Json',
+  'foreach ($d in $dirs) {',
+  '  $p = $root; if ($d) { $p = Join-Path $root $d }',
+  '  $items = $null',
+  '  try { $items = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Where-Object Name -ne \'.git\' | Select-Object -First 501 | ForEach-Object { @{ name=$_.Name; dir=($_.PSIsContainer -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)); link=[bool]($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } }) } catch { $items = $null }',
+  '  if ($null -eq $items) { Write-Output ("F$([char]0)$d$([char]0)null$([char]0)") } else { $json = ConvertTo-Json $items -Compress; Write-Output ("F$([char]0)$d$([char]0)$json$([char]0)") }',
+  '}',
+].join("; ");
+
+const LIST_SCRIPT_SH = [
+  'n=0',
+  'for d in "$@"; do',
+  '  p=${1%/}/$d; [ "$d" = "" ] && p=$1',
+  '  printf "F\\0%s\\0" "$d"',
+  '  ok=0',
+  '  if [ -d "$p" ]; then for f in "$p"/* "$p"/.[!.]* "$p"/..?*; do',
+  '    [ -e "$f" ] || [ -L "$f" ] || continue; name=${f##*/}; [ "$name" = .git ] && continue',
+  '    if [ -L "$f" ]; then kind=l; elif [ -d "$f" ]; then kind=d; else kind=f; fi',
+  '    printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); ok=1; [ "$n" -gt 500 ] && break',
+  '  done; fi',
+  '  [ "$ok" = 1 ] || printf "null\\0"',
+  'done',
+  'test -d "$1"',
+].join("\n");
+
+// Returns a Map of folder path (relative, "" for the root) to its entries, or
+// throws when the root itself cannot be listed. One process for every folder.
+async function listFolders(root, paths, on) {
+  const folders = paths.map(p => `${p}`.replaceAll("\\", "/"));
+  let stdout;
   if (!on && window()?.platform === "windows") {
-    const r = await exec("powershell", ["-NoProfile", "-Command", "& { param($p) @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Where-Object Name -ne '.git' | Select-Object -First 501 | ForEach-Object { @{ name=$_.Name; dir=($_.PSIsContainer -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)); link=[bool]($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } }) | ConvertTo-Json -Compress } '" + path.replaceAll("'", "''") + "'"]);
+    const script = LIST_SCRIPT_WINDOWS
+      .replace("__ROOT__", root.replaceAll("'", "''"))
+      .replace("__DIRS__", JSON.stringify(folders).replaceAll("'", "''"));
+    const r = await exec("powershell", ["-NoProfile", "-Command", script], { timeout: 30000 });
+    if (r.code !== 0 && !r.stdout.includes("F\0")) throw new Error(r.stderr || "Cannot list this folder");
+    stdout = r.stdout;
+  } else {
+    const r = await exec("sh", ["-c", LIST_SCRIPT_SH, "files", root, ...folders], { on });
     if (r.code !== 0) throw new Error(r.stderr || "Cannot list this folder");
-    const result = JSON.parse(r.stdout || "[]");
-    return Array.isArray(result) ? result : [result];
+    stdout = r.stdout;
   }
-  const script = 'n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; name=${p##*/}; [ "$name" = .git ] && continue; if [ -L "$p" ]; then kind=l; elif [ -d "$p" ]; then kind=d; else kind=f; fi; printf "%s\\0%s\\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt 500 ] && break; done; test -d "$1"';
-  const r = await exec("sh", ["-c", script, "files", path], { on });
-  if (r.code !== 0) throw new Error(r.stderr || "Cannot list this folder");
-  const fields = r.stdout.split("\0"), out = [];
-  for (let i = 0; i + 1 < fields.length; i += 2) out.push({ name: fields[i + 1], dir: fields[i] === "d", link: fields[i] === "l" });
+  const out = parseFolderRecords(stdout);
+  if (!out.has("")) throw new Error("Cannot list this folder");
+  return out;
+}
+
+function parseFolderRecords(stdout) {
+  const fields = stdout.split("\0"), out = new Map();
+  for (let i = 0; i + 2 < fields.length; i += 1) {
+    if (fields[i] !== "F") continue;
+    const folder = fields[i + 1];
+    let entries = [];
+    try {
+      const parsed = JSON.parse(fields[i + 2] || "[]");
+      if (parsed === null) { out.set(folder, null); continue; }
+      entries = Array.isArray(parsed) ? parsed : [parsed];
+    } catch { out.set(folder, null); continue; }
+    out.set(folder, entries);
+  }
   return out;
 }
 
@@ -74,13 +142,18 @@ export default class Panel {
     return this.context === context && key() === context.key;
   }
 
+  // Load one folder's entries into the panel state, pruning to the totals.
+  store(folder, context, entries) {
+    if (!this.current(context) || (folder && !this.folders.has(folder))) return;
+    const used = [...this.entries.entries()].filter(([p]) => p !== folder).reduce((n, [, e]) => n + e.length, 0);
+    if (entries.length > PER_FOLDER || used + entries.length > TOTAL) this.limited = true;
+    this.entries.set(folder, entries.slice(0, Math.max(0, Math.min(PER_FOLDER, TOTAL - used))).sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name)));
+  }
+
   async loadFolder(path, context) {
     const { on, cwd: root } = context;
-    const entries = await directory(path ? `${root}/${path}` : root, on);
-    if (!this.current(context) || (path && !this.folders.has(path))) return;
-    const used = [...this.entries.entries()].filter(([p]) => p !== path).reduce((n, [, e]) => n + e.length, 0);
-    this.entries.set(path, entries.slice(0, Math.max(0, Math.min(PER_FOLDER, TOTAL - used))).sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name)));
-    if (entries.length > PER_FOLDER || used + entries.length > TOTAL) this.limited = true;
+    const entries = await listFolders(root, [path], on).then(m => m.get(path));
+    this.store(path, context, entries ?? []);
   }
 
   refresh(cx) {
@@ -99,9 +172,13 @@ export default class Panel {
     this.limited = false;
     cx.spawn(async cx => {
       try {
-        for (const path of ["", ...this.folders]) {
-          if (!this.current(context)) return;
-          await this.loadFolder(path, context);
+        const listing = await listFolders(cwd, ["", ...this.folders], on);
+        if (!this.current(context)) return;
+        this.limited = false;
+        for (const [folder, entries] of listing) {
+          if (folder !== "" && !this.folders.has(folder)) continue;
+          this.store(folder, context, entries ?? []);
+          if (entries === null && folder === "") throw new Error("Cannot list this folder");
         }
         const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }).catch(() => null);
         const marks = {}, ignored = new Set();
