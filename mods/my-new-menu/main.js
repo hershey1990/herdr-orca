@@ -61,15 +61,15 @@ export default class NewMenu extends View {
     });
   }
 
-  // A new space rooted where the person picks. The popup closes before the
-  // system folder dialog opens (a native dialog over a popup steals wrong),
-  // and space.new {folder} starts its first terminal right there — no cd-ing
-  // from a home prompt.
+  // A new space rooted where the person picks. new-project's pattern: spawn
+  // first, pick, then close — closing the popup before spawning kills the
+  // click's cx, and the spawn never runs (the row did nothing).
   spaceFromFolder(cx) {
-    closeOverlay(props()?.overlay);
     cx.spawn(async () => {
       const folder = await pickFolder({ prompt: "New space in folder" }).catch(() => null);
-      if (folder) run("space.new", { folder });
+      if (!folder) return;
+      closeOverlay(props()?.overlay);
+      run("space.new", { folder });
     });
   }
   row(id, icon, name, action, hint = "", enabled = true) {
