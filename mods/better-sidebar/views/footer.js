@@ -33,24 +33,7 @@ export class Footer {
           muted: true,
           onClick: () => run("layout.toggle", { id: agents.id }),
         }))))
-      .child(
-        h_flex()
-          .child(row("machine", "plus", "Add machine", true, () => run("mod.open", { name: "machine-add" })).flex_1().min_w(0))
-          .child(h_flex().id("space-from-folder").h(28).w(28).flex_none().items_center().justify_center().rounded(8)
-            .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
-            .tooltip("New space from folder…\nThe space's terminal starts right in the folder you pick")
-            .on_click((cx) => this.spaceFromFolder(cx))
-            .child(svg("mods/workspace-chrome/folder.svg").size(14).flex_none())),
-      );
-  }
-
-  // A new space rooted where the person picks: the system folder dialog, then
-  // space.new {folder} so its first terminal starts right there.
-  spaceFromFolder(cx) {
-    cx.spawn(async () => {
-      const folder = await pickFolderDialog("New space in folder");
-      if (folder) run("space.new", { folder });
-    });
+      .child(row("machine", "plus", "Add machine", true, () => run("mod.open", { name: "machine-add" })));
   }
 
   // "6 agents · 3 need you" while agents show in spaces; the orange part goes to the first.
