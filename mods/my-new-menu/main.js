@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared } from "herdr";
+import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, pickFolder } from "herdr";
 // Same probe the launcher uses. Mods cannot import across folders, so this
 // is open-zed/zed.js copied; keep the two files identical (as with
 // project-settings' hooks.js).
@@ -60,6 +60,18 @@ export default class NewMenu extends View {
       cx.notify();
     });
   }
+
+  // A new space rooted where the person picks. The popup closes before the
+  // system folder dialog opens (a native dialog over a popup steals wrong),
+  // and space.new {folder} starts its first terminal right there — no cd-ing
+  // from a home prompt.
+  spaceFromFolder(cx) {
+    closeOverlay(props()?.overlay);
+    cx.spawn(async () => {
+      const folder = await pickFolder({ prompt: "New space in folder" }).catch(() => null);
+      if (folder) run("space.new", { folder });
+    });
+  }
   row(id, icon, name, action, hint = "", enabled = true) {
     const t = theme();
     return h_flex().id(id).h(31).px(9).gap(10).rounded(7).items_center().flex_none()
@@ -92,6 +104,7 @@ export default class NewMenu extends View {
       .child(div().h(1).mx(4).my(5).bg(t.border))
       .child(this.row("project", svg("mods/workspace-chrome/folder-plus.svg").size(14), "New project…", () => run("mod.open", { name: "new-project" }), shortcut("mod.open:new-project")))
       .child(this.row("space", div().w(14).child("+"), "New space", () => run("space.new"), shortcut("space.new")))
+      .child(this.row("space-folder", svg("mods/workspace-chrome/folder.svg").size(14), "New space from folder…", (cx) => this.spaceFromFolder(cx), "", Boolean(space)))
       .child(this.row("worktree", svg("mods/workspace-chrome/branch.svg").size(14), "New worktree…", () => openOverlay({ mod: "new-worktree", kind: "dialog", width: 560, height: 780, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd } }), shortcut("mod.open:new-worktree"), Boolean(space)))
       .child(this.row("worktree-open", svg("mods/workspace-chrome/branch.svg").size(14), "Open worktree\u2026", () => openOverlay({ mod: "new-worktree", kind: "dialog", width: 560, height: 780, props: { space: space?.id, folder: panes().find(p => p.focused)?.cwd, mode: "branch" } }), "", Boolean(space)));
   }
