@@ -2,8 +2,9 @@
 // toggle at its right end) and Add machine.
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, run, updates, layout, pickFolder } from "herdr";
+import { theme, run, updates, layout } from "herdr";
 import { IconButton } from "./ui.js";
+import { pickFolderDialog } from "../pick-folder.js";
 import { findNode } from "./find-node.js";
 import { inlineAgents, readAgents, tally, subTree, allSpaceIds } from "./space-agents.js";
 import { kidStatus } from "./agents.js";
@@ -47,7 +48,7 @@ export class Footer {
   // space.new {folder} so its first terminal starts right there.
   spaceFromFolder(cx) {
     cx.spawn(async () => {
-      const folder = await pickFolder({ prompt: "New space in folder" }).catch(() => null);
+      const folder = await pickFolderDialog("New space in folder");
       if (folder) run("space.new", { folder });
     });
   }

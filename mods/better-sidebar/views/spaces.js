@@ -21,8 +21,10 @@ import {
   home,
   exec,
   focused,
+  pickFolder,
 } from "herdr";
 import { PRStatusObserver, prPlaceKey, prAppearance } from "../git/pr-status.js";
+import { pickFolderDialog } from "../pick-folder.js";
 import { spaceFolder, checkoutKey, readCheckout } from "../git/checkouts.js";
 import { findRepoIcon, pickedIcon } from "../git/project-icons.js";
 import { loadSettings, duration } from "../settings.js";
@@ -852,6 +854,17 @@ export class Spaces {
     run("space.new", { machine: m ?? "", ...(folder ? { folder } : {}) });
   }
 
+  // The same, but the person picks the folder first. The system dialog runs
+  // in a child process (see pick-folder.js): herdr's own pickFolder never
+  // opens on this machine, so a promise on it would hang the click forever.
+  newSpaceFromFolder(m, cx) {
+    cx.spawn(async () => {
+      const folder = await pickFolderDialog(`New space in folder${m ? ` on ${m}` : ""}`);
+      if (!folder) return;
+      run("space.new", { machine: m ?? "", folder });
+    });
+  }
+
   machineLoading(m) {
     const layout = machines().find((k) => k.name === m)?.layout;
     return (
@@ -942,8 +955,11 @@ export class Spaces {
       .when(folded, (el) => el.child(div().flex_none().text_size(TEXT.caption).text_color(t.dim).child(String(ids.length))))
       .child(div().size(6).mx(2).rounded(3).flex_none().bg(connected ? t.ansi2 : t.dim)
         .tooltip(connected ? "Connected" : (machine?.state ?? "asleep").replace(/_/g, " ")))
-      .when(connected, (el) => el.child(IconButton({ id: `machine-add-${m ?? "local"}`, icon: "plus", label: `New space on ${m ?? "this computer"}`,
-        iconSize: 13, muted: true, onClick: () => this.newSpace(m) }).size(22)));
+      .when(connected, (el) => el
+        .child(IconButton({ id: `machine-add-${m ?? "local"}`, icon: "plus", label: `New space on ${m ?? "this computer"}`,
+          iconSize: 13, muted: true, onClick: () => this.newSpace(m) }).size(22))
+        .child(IconButton({ id: `machine-add-folder-${m ?? "local"}`, icon: "folder-plus", label: "New space from folder…",
+          iconSize: 13, muted: true, onClick: (cx) => this.newSpaceFromFolder(m, cx) }).size(22)));
     // One rule between machines; none above the first.
     return v_flex()
       .id(`machine-section-${m ?? "local"}`)
@@ -1558,6 +1574,16 @@ export class Spaces {
                   iconSize: 14,
                   muted: true,
                   onClick: () => this.newSpace(this.focusedMachine()),
+                }),
+              )
+              .child(
+                IconButton({
+                  id: "space-new-folder",
+                  icon: "folder",
+                  label: "New space from folder…",
+                  iconSize: 14,
+                  muted: true,
+                  onClick: (cx) => this.newSpaceFromFolder(this.focusedMachine(), cx),
                 }),
               ),
           ),

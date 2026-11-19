@@ -1,10 +1,12 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, pickFolder } from "herdr";
+import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared } from "herdr";
 // Same probe the launcher uses. Mods cannot import across folders, so this
 // is open-zed/zed.js copied; keep the two files identical (as with
 // project-settings' hooks.js).
 import { zedCommand } from "./zed.js";
+// Same dialog the sidebar uses (a copy: mods cannot import across folders).
+import { pickFolderDialog } from "./pick-folder.js";
 
 // The last agents each machine reported, shown at once while knownAgents() checks again.
 const KNOWN = "new-menu.agents";
@@ -66,7 +68,7 @@ export default class NewMenu extends View {
   // click's cx, and the spawn never runs (the row did nothing).
   spaceFromFolder(cx) {
     cx.spawn(async () => {
-      const folder = await pickFolder({ prompt: "New space in folder" }).catch(() => null);
+      const folder = await pickFolderDialog("New space in folder");
       if (!folder) return;
       closeOverlay(props()?.overlay);
       run("space.new", { folder });
