@@ -1,5 +1,6 @@
 // What runs in a terminal, how to stop it, and how to start it again.
 import { hc, exec, home, readTextFile } from "herdr";
+import * as fs from "fs/promises";
 
 const SHELLS = new Set(["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu", "xonsh", "pwsh", "login"]);
 const base = (s) => String(s ?? "").split("/").pop().replace(/^-/, "");
@@ -58,12 +59,16 @@ function kind(g, f) {
 }
 
 // The session id to resume with, per kind; null when the tool keeps none.
+// claude and codex read their own pid-keyed state files (cheap); the rest
+// go through the pid cache so their process cost is paid once per agent,
+// not once per 30s pass.
 async function sessionFor(k, f, cwd, on) {
   if (k === "claude") return claudeSession(f.pid, on);
   if (k === "codex") return codexSession(f.pid, on);
-  if (k === "copilot") return copilotSession(cwd, on);
-  if (k === "opencode") return opencodeSession(cwd, on);
-  if (k === "omp") return ompSession(cwd, on);
+  const key = `${cwd}|${(f.argv ?? []).join(" ")}`;
+  if (k === "copilot") return cachedSession(key, f.pid, cwd, (c) => copilotSession(c, on));
+  if (k === "opencode") return cachedSession(key, f.pid, cwd, (c) => opencodeSession(c, on));
+  if (k === "omp") return cachedSession(key, f.pid, cwd, (c) => ompSession(c, on));
   return null;
 }
 
@@ -101,11 +106,12 @@ function ompSlug(cwd, home) {
 async function ompSession(cwd, on) {
   const home = await homeOn(on);
   const dir = `${home.replaceAll("\\", "/")}/.omp/agent/sessions/${ompSlug(cwd, home)}`;
-  const list = await exec("powershell", ["-NoProfile", "-Command",
-    `(Get-ChildItem -LiteralPath '${dir.replaceAll("'", "''")}' -Filter '*.jsonl' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName`], { on, timeout: 15000 }).catch(() => null);
-  const file = list?.stdout?.trim();
-  if (!file) return null;
-  const text = await readTextFile(file, { on }).catch(() => null);
+  // readdir is in-process: no PowerShell per agent per pass.
+  const files = await fs.readdir(dir).catch(() => null);
+  if (!files) return null;
+  const jsonl = files.filter((f) => f.endsWith(".jsonl")).sort().at(-1);
+  if (!jsonl) return null;
+  const text = await readTextFile(`${dir}/${jsonl}`, { on }).catch(() => null);
   const line = text?.split("\n").find((l) => l.includes('"type":"session"'));
   try {
     const rec = line && JSON.parse(line);
@@ -143,6 +149,19 @@ async function copilotSession(cwd, on) {
   } catch {
     return null;
   }
+}
+
+// Session ids cost a process (PowerShell, an entire CLI) per agent; cache
+// them by pid+cwd+argv so a running agent is looked up once, not on every
+// 30s pass. A new pid (restart, resume) is a fresh lookup.
+const sessionCache = new Map();
+
+async function cachedSession(key, pid, cwd, lookup) {
+  const hit = sessionCache.get(pid);
+  if (hit && hit.key === key) return hit.session;
+  const session = await lookup(cwd);
+  sessionCache.set(pid, { key, session });
+  return session;
 }
 
 // A snapshot entry for a terminal, or null when it runs nothing.
