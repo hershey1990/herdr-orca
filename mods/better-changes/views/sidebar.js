@@ -183,7 +183,17 @@ export const sidebarMethods = {
 
   renderChanges() {
     const list = v_flex().id("changes-list").flex_1().min_h(0).overflow_y_scrollbar().p(6);
-    if (this.error) return list.child(Message(this.error, true));
+    if (this.error) {
+      // A stable state, not a flicker: the location is anchored per space, so
+      // this banner means the space's folder itself holds no repository (yet).
+      const t = theme();
+      list.child(
+        v_flex().gap(4).p(8).child(Message(this.error, true)).child(
+          div().text_size(TEXT.caption).text_color(t.dim).whitespace_normal().child(this.root ?? this.location().cwd ?? ""),
+        ),
+      );
+      return list;
+    }
     const conflicts = this.files.filter((f) => f.conflict);
     const unstaged = this.files.filter((f) => f.unstaged && !f.conflict);
     const staged = this.files.filter((f) => f.staged);

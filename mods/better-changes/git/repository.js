@@ -21,22 +21,43 @@ const READ_ONLY = [
 ];
 const BULK_PATHS = 200; // Per command, to stay under the system's argument limit.
 
-// The active terminal's folder, or the repository saved for our own diff tab,
-// since a mod pane has no terminal folder.
+// Case-insensitive path containment, tolerant of / and \ and trailing slashes.
+const norm = (p) => `${p}`.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+const inside = (p, base) => {
+  const a = norm(p), b = norm(base);
+  return a === b || a.startsWith(`${b}/`);
+};
+
+// The panel's location: anchored on the space's repository, not on whichever
+// pane has the keyboard. A mod pane has no cwd of its own (focused() then
+// reports the app's folder), and an agent in C:\ must not flip the panel to
+// "Not a Git repository" or break its render mid-frame.
+//
+// Rules:
+//  - only terminal panes of the active tab may lead the location, and only
+//    when they sit inside the space's folder;
+//  - a space whose folder is the bare home is not anchored at all (nothing
+//    sane can be listed there);
+//  - otherwise the space's folder stands — the panel describes the space you
+//    are in, and cd-ing to another repo inside it still follows.
 function activeLocation() {
   const space = spaces().find((s) => s.active);
   const tab = space?.tabs?.find((t) => t.active)?.id;
-  const candidates = panes().filter((p) => p.tab === tab && p.cwd);
+  const candidates = panes().filter((p) => p.tab === tab && p.cwd && p.terminal);
   if (!candidates.length && panes().some((p) => p.tab === tab && p.mod === "better-changes")) {
     const source = (shared("better-changes.diff-tabs") ?? {})[space?.id]?.source;
     if (source) return source;
   }
+  const folder = space?.folder || null;
+  const bareHome = folder && /^[a-z]:[\\/](users[\\/][^\\/]+)?[\\/]?$/i.test(folder.replaceAll("\\", "/").replace(/\/+$/, ""));
+  if (folder && !bareHome) {
+    const inSpace = candidates.find((p) => inside(p.cwd, folder));
+    if (inSpace) return { cwd: inSpace.cwd, on: space?.machine ?? null };
+  }
   return {
-    cwd:
-      candidates.find((p) => p.focused)?.cwd ??
-      candidates[0]?.cwd ??
-      focused()?.cwd ??
-      space?.folder,
+    cwd: bareHome
+      ? (candidates.find((p) => p.focused)?.cwd ?? candidates[0]?.cwd ?? focused()?.cwd ?? null)
+      : (folder ?? candidates[0]?.cwd ?? focused()?.cwd ?? null),
     on: space?.machine ?? null,
   };
 }
