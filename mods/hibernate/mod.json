@@ -1,4 +1,1 @@
-{
-  "place": "none",
-  "title": "Hibernate"
-}
+{ "place": "none", "title": "Hibernate", "settings": { "after_restart": "auto" } }
