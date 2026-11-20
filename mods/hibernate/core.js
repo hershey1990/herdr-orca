@@ -51,7 +51,20 @@ function kind(g, f) {
   const b = base(f.argv?.[0]);
   if (app === "claude-code" || b === "claude") return "claude";
   if (app === "codex" || b === "codex") return "codex";
+  if (app === "github-copilot" || b === "copilot") return "copilot";
+  if (app === "opencode" || b === "opencode") return "opencode";
+  if (b === "omp" || b === "pi" || app === "omp" || app === "pi") return "omp";
   return "program";
+}
+
+// The session id to resume with, per kind; null when the tool keeps none.
+async function sessionFor(k, f, cwd, on) {
+  if (k === "claude") return claudeSession(f.pid, on);
+  if (k === "codex") return codexSession(f.pid, on);
+  if (k === "copilot") return copilotSession(cwd, on);
+  if (k === "opencode") return opencodeSession(cwd, on);
+  if (k === "omp") return ompSession(cwd, on);
+  return null;
 }
 
 async function claudeSession(pid, on) {
@@ -72,21 +85,82 @@ async function codexSession(pid, on) {
   return m ? m[1] : null;
 }
 
+// omp (and pi, which shares its storage): the newest session file for the
+// terminal's folder. Sessions live at ~/.omp/agent/sessions/<slug>/<file>.jsonl
+// where <slug> encodes the cwd: the home prefix stripped (else the drive
+// letter), separators turned to dashes, "-" for the bare home.
+function ompSlug(cwd, home) {
+  let p = `${cwd}`.replaceAll("/", "\\");
+  const h = `${home}`.replaceAll("/", "\\");
+  if (p.toLowerCase().startsWith(h.toLowerCase())) p = p.slice(h.length);
+  else p = p.replace(/^[A-Za-z]:/, "");
+  p = p.replaceAll(/[:\\/]/g, "-").replace(/^-+/, "").replace(/-+$/, "");
+  return p ? `-${p}` : "-";
+}
+
+async function ompSession(cwd, on) {
+  const home = await homeOn(on);
+  const dir = `${home.replaceAll("\\", "/")}/.omp/agent/sessions/${ompSlug(cwd, home)}`;
+  const list = await exec("powershell", ["-NoProfile", "-Command",
+    `(Get-ChildItem -LiteralPath '${dir.replaceAll("'", "''")}' -Filter '*.jsonl' | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName`], { on, timeout: 15000 }).catch(() => null);
+  const file = list?.stdout?.trim();
+  if (!file) return null;
+  const text = await readTextFile(file, { on }).catch(() => null);
+  const line = text?.split("\n").find((l) => l.includes('"type":"session"'));
+  try {
+    const rec = line && JSON.parse(line);
+    return rec?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// OpenCode: its own CLI lists sessions for the current project, newest
+// first, with the directory they ran in — no sqlite3 needed.
+async function opencodeSession(cwd, on) {
+  const r = await exec("opencode", ["session", "list", "--format", "json", "-n", "20"], { cwd, on, timeout: 20000 }).catch(() => null);
+  try {
+    const rows = JSON.parse(r?.stdout ?? "[]");
+    const want = `${cwd}`.replaceAll("\\", "/").toLowerCase();
+    const hit = rows.find((s) => `${s.directory ?? ""}`.replaceAll("\\", "/").toLowerCase() === want);
+    return hit?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// GitHub Copilot CLI: ~/.copilot/open-sessions-state.json names the sessions
+// the person has open; the newest openedAt is the one a reboot interrupts.
+// (Its chats tree does not record the cwd per session, so per-folder matching
+// is not possible yet; resume itself accepts the id: copilot --resume=<id>.)
+async function copilotSession(cwd, on) {
+  const text = await readTextFile(`${await homeOn(on)}/.copilot/open-sessions-state.json`, { on }).catch(() => null);
+  try {
+    const opened = text && JSON.parse(text);
+    const ids = Object.entries(opened ?? {})
+      .sort((a, b) => String(b[1]?.openedAt ?? "").localeCompare(String(a[1]?.openedAt ?? "")));
+    return ids[0]?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // A snapshot entry for a terminal, or null when it runs nothing.
 export async function describe(g) {
   const f = program(g);
   if (!f) return null;
   const k = kind(g, f);
   const on = machineOf(g.address);
-  const session = k === "claude" ? await claudeSession(f.pid, on) : k === "codex" ? await codexSession(f.pid, on) : null;
+  const cwd = f.cwd || g.cwd;
+  const session = await sessionFor(k, f, cwd, on);
   return {
     address: g.address,
     shellPid: g.pid,
     argv: f.argv ?? [],
-    cwd: f.cwd || g.cwd,
+    cwd,
     kind: k,
     session,
-    name: k === "claude" ? "Claude Code" : k === "codex" ? "Codex" : base(f.argv?.[0]) || f.name,
+    name: k === "claude" ? "Claude Code" : k === "codex" ? "Codex" : k === "copilot" ? "Copilot" : k === "opencode" ? "OpenCode" : k === "omp" ? "omp" : base(f.argv?.[0]) || f.name,
     status: g.status?.state ?? null,
     space: g.labels?.["herdr.space"] ?? null,
     tab: g.labels?.["herdr.tab"] ?? null,
@@ -98,6 +172,9 @@ export async function describe(g) {
 const KEEP = {
   claude: { flags: ["--dangerously-skip-permissions", "--verbose"], valued: ["--model", "--permission-mode", "--add-dir", "--agent"] },
   codex: { flags: ["--dangerously-bypass-approvals-and-sandbox", "--yolo", "--search"], valued: ["--model", "-m", "--profile", "-p", "--sandbox", "-s"] },
+  copilot: { flags: ["--allow-all"], valued: ["--model", "-m", "--agent"] },
+  opencode: { flags: [], valued: ["--model", "-m", "--agent"] },
+  omp: { flags: [], valued: ["--model", "-m", "--profile", "--plan", "--slow"] },
 };
 
 function kept(argv, k) {
@@ -112,6 +189,9 @@ function kept(argv, k) {
 export function resumeArgv(e) {
   if (e.kind === "claude") return e.session ? ["claude", ...kept(e.argv, "claude"), "--resume", e.session] : e.argv;
   if (e.kind === "codex") return ["codex", "resume", "--no-daemon", ...kept(e.argv, "codex"), e.session ?? "--last"];
+  if (e.kind === "copilot") return e.session ? ["copilot", ...kept(e.argv, "copilot"), "--resume", e.session] : e.argv;
+  if (e.kind === "opencode") return e.session ? ["opencode", ...kept(e.argv, "opencode"), "--session", e.session] : e.argv;
+  if (e.kind === "omp") return e.session ? ["omp", ...kept(e.argv, "omp"), "--resume", e.session] : e.argv;
   return e.argv;
 }
 
@@ -176,10 +256,11 @@ async function term(address) {
 
 // Stops what runs in a terminal and leaves its shell in place.
 export async function stop(cx, e) {
-  if (e.kind === "claude" || e.kind === "codex") {
+  const exitKey = { claude: "/exit", codex: "/quit", copilot: "/exit", opencode: "/exit", omp: "/exit" }[e.kind];
+  if (exitKey) {
     if (e.status === "working" || e.status === "blocked") await hc(["interrupt", e.address, "--timeout", "5"]).catch(() => null);
     // Pressed as keys: a send from another machine reaches an agent as a tagged message, not a command.
-    await hc(["keys", e.address, ...(e.kind === "claude" ? "/exit" : "/quit"), "enter"]).catch(() => null);
+    await hc(["keys", e.address, exitKey, "enter"]).catch(() => null);
     if (await waitIdle(cx, e.address, 10000)) return true;
   }
   await term(e.address);
