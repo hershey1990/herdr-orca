@@ -284,9 +284,12 @@ export default class Panel {
     });
   }
 
-  // Ignored by git, itself or through a folder above it.
+  // Ignored by git, itself or through a folder above it. Git reports the
+  // toplevel with forward slashes while the space folder carries Windows
+  // backslashes — normalize both sides or the Set never matches.
   isIgnored(path) {
-    for (let p = path; p; p = p.slice(0, Math.max(0, p.lastIndexOf("/")))) if (this.ignored.has(`${this.root}/${p}`)) return true;
+    for (let p = path; p; p = p.slice(0, Math.max(0, p.lastIndexOf("/"))))
+      if (this.ignored.has(`${this.root}/${p}`.replaceAll("\\", "/"))) return true;
     return false;
   }
 
