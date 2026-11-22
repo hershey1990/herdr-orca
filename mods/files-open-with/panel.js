@@ -152,14 +152,30 @@ export default class Panel {
     return JSON.stringify(this.location());
   }
 
+  // Watch the root and every expanded folder: a folder created inside an
+  // expanded subfolder fires there, not on the root's watch. Extra watches
+  // are cheap; the root watch stays primary.
   watch(root, cx) {
-    if (this.on || this.watched === root) return;
-    this.watched = root;
+    if (this.on) return;
+    const wanted = new Set([root, ...[...this.folders].map((f) => `${this.root}/${f}`.replaceAll("\\", "/"))]);
+    for (const [dir, ctx] of this.watches ?? new Map()) {
+      if (wanted.has(dir) && this.context === ctx) continue;
+      ctx?.cancel?.();
+      this.watches.delete(dir);
+    }
+    this.watches ??= new Map();
     const context = this.context;
-    cx.spawn(async cx => {
-      try { while (this.context === context) { await watchFolder(root); if (this.current(context)) this.refresh(cx); } }
-      catch { if (this.context === context) this.watched = null; }
-    });
+    for (const dir of wanted) {
+      if (this.watches.has(dir)) continue;
+      const watch = watchFolder(dir).then((changed) => {
+        if (this.context === context && this.watches.get(dir) === watch) {
+          this.watches.delete(dir);
+          if (this.current(context)) this.refresh(cx);
+        }
+        return changed;
+      }).catch(() => { this.watches.delete(dir); });
+      this.watches.set(dir, watch);
+    }
   }
 
   current(context) {
@@ -187,7 +203,7 @@ export default class Panel {
       const saved = this.saved.get(next);
       const space = spaces().find(s => s.active);
       this.context = { key: next, cwd, on, space: space?.id }; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set(saved?.folders);
-      this.pending = new Set(); this.marks = {}; this.ignored = new Set(); this.show(null); this.watched = null; this.error = null; this.limited = false;
+      this.pending = new Set(); this.marks = {}; this.ignored = new Set(); this.show(null); this.watches = new Map(); this.error = null; this.limited = false;
       this.loading = false;
       if (saved?.file) this.show(saved.file, cx);
     }
@@ -321,7 +337,11 @@ export default class Panel {
         .child(div().font_semibold().child("Files"))
         .child(div().id("files-current").flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim)
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (this.root) this.menu(this.file ? `${this.root}/${this.file}` : this.root, !this.file, cx); })
-          .child(this.file ?? this.root?.split(/[\\/]/).pop() ?? "")))
+          .child(this.file ?? this.root?.split(/[\\/]/).pop() ?? ""))
+        .when(!this.file, el => el.child(div().id("files-refresh").w(20).cursor_pointer().text_color(t.muted)
+          .tooltip("Refresh the tree")
+          .on_click((_e, cx) => { this.watches = new Map(); this.refresh(cx); cx.notify(); })
+          .child(svg("mods/better-changes/icons/refresh.svg").size(14)))))
       .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t, dark))
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
