@@ -47,7 +47,7 @@ const LIST_SCRIPT_WINDOWS = [
   'foreach ($d in $dirs) {',
   '  $p = $root; if ($d) { $p = Join-Path $root $d }',
   '  $items = $null',
-  '  try { $items = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Where-Object Name -ne \'.git\' | Select-Object -First 501 | ForEach-Object { @{ name=$_.Name; dir=($_.PSIsContainer -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)); link=[bool]($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } }) } catch { $items = $null }',
+  '  try { $items = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Where-Object Name -ne \'.git\' | Select-Object -First 501 | ForEach-Object { @{ name=$_.Name; dir=$_.PSIsContainer; link=[bool]($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } }) } catch { $items = $null }',
   '  if ($null -eq $items) { Write-Output ("F$([char]0)$d$([char]0)null$([char]0)") } else { $json = ConvertTo-Json $items -Compress; Write-Output ("F$([char]0)$d$([char]0)$json$([char]0)") }',
   '}',
 ].join("; ");
