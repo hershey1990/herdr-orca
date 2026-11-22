@@ -116,7 +116,7 @@ function parseFolderRecords(stdout) {
 // A plain class: main.js (the View) owns it and forwards init and render.
 export default class Panel {
   init(_props, cx) {
-    this.saved = new Map();
+    this.saved = new Map(); this.cache = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.ignored = new Set();
     this.refresh(cx);
     cx.timer.every(10000, cx => this.refresh(cx));
@@ -196,20 +196,34 @@ export default class Panel {
     this.store(path, context, entries ?? []);
   }
 
+  // Stale-while-revalidate: switching spaces paints the cached listing
+  // instantly and re-lists in the background. Cache is an LRU of the last
+  // 8 spaces (entries, folders, marks, ignored — the whole view state).
+  cachePut(key, state) {
+    this.cache.set(key, state);
+    while (this.cache.size > 8) this.cache.delete(this.cache.keys().next().value);
+  }
+
   refresh(cx) {
     const { cwd, on } = this.location(), next = this.key();
     if (next !== this.context?.key) {
-      if (this.context) this.saved.set(this.context.key, { folders: this.folders, file: this.file });
-      const saved = this.saved.get(next);
+      if (this.context) this.cachePut(this.context.key, { entries: this.entries, folders: this.folders, marks: this.marks, ignored: this.ignored, file: this.file });
+      const saved = this.saved.get(next), cached = this.cache.get(next);
       const space = spaces().find(s => s.active);
-      this.context = { key: next, cwd, on, space: space?.id }; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set(saved?.folders);
-      this.pending = new Set(); this.marks = {}; this.ignored = new Set(); this.show(null); this.watches = new Map(); this.error = null; this.limited = false;
+      this.context = { key: next, cwd, on, space: space?.id }; this.root = cwd; this.on = on;
+      this.entries = cached?.entries ?? new Map(); this.folders = new Set(saved?.folders ?? cached?.folders);
+      this.marks = cached?.marks ?? {}; this.ignored = cached?.ignored ?? new Set();
+      this.pending = new Set(); this.show(null); this.watches = new Map(); this.error = null; this.limited = cached?.limited ?? false;
       this.loading = false;
-      if (saved?.file) this.show(saved.file, cx);
+      if (saved?.file ?? cached?.file) this.show(saved?.file ?? cached.file, cx);
+      // A cached paint is followed by a silent re-list: fresh without a
+      // spinner, and the watcher takes over once installed.
+      this.background = Boolean(cached);
     }
     if (!cwd || this.loading) return;
     const context = this.context;
-    this.loading = true;
+    this.loading = this.background ? false : true;
+    this.background = false;
     this.limited = false;
     cx.spawn(async cx => {
       try {
