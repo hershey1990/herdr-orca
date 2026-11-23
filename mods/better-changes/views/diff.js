@@ -1,6 +1,6 @@
 // The diff: opening a file in the centre tab, reading it, and drawing it.
 import { div } from "gpui-kit";
-import { h_flex, Scrollbar, v_virtual_list } from "gpui-base";
+import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { image } from "gpui-kit";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
