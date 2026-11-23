@@ -291,8 +291,8 @@ export const diffMethods = {
     const ext = (path.match(IMAGE_EXT)?.[1] ?? "png").toLowerCase();
     const dir = `${appHome().replaceAll("\\\\", "/")}/data/better-changes`;
     await fs.mkdir(dir, { recursive: true });
-    const name = `diff-${path.replaceAll("\\\\", "/").split("/").at(-1).replace(/[^A-Za-z0-9._-]/g, "_")}.svg`;
     const bin = await fs.readFile(`${root.replaceAll("\\\\", "/")}/${path.replaceAll("\\\\", "/")}`);
+    const name = `diff-${path.replaceAll("\\\\", "/").split("/").at(-1).replace(/[^A-Za-z0-9._-]/g, "_")}-${bin.length}.svg`;
     let binary = "";
     for (let i = 0; i < bin.length; i += 0x8000) binary += String.fromCharCode(...bin.subarray(i, i + 0x8000));
     const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
