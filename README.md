@@ -28,6 +28,28 @@ from upstream (`personal` branch):
   minutes). Local folders only; the launcher finds the real relay
   `bin\Zed.exe` (the `zed` on PATH is a bash shim) and starts it without
   waiting, so a cold first launch never blocks the window.
+- **Branch switcher** — every repo space's right-click menu gains
+  **Switch branch…**: lists branches with tip and upstream, current marked,
+  branches held by another worktree dimmed, type-to-filter, and git's own
+  error when it refuses. `mods/branch-picker/`.
+- **New space from folder** — in the + menu and beside the Spaces header's
+  `+`: pick a folder in the system dialog and the space's terminal starts
+  right there.
+- **Files panel, faster and steadier** — one PowerShell process lists root
+  plus every expanded folder (was one per folder); the tree anchors on the
+  space's repository so a focused pane outside the project cannot re-root
+  it; git-ignored entries are actually dimmed (a `/` vs `\` mismatch had
+  silenced that on Windows); junctions/symlinked folders expand; a refresh
+  button and per-folder watches cover missed updates; and switching spaces
+  paints the tree instantly from a per-space cache (stale-while-revalidate,
+  LRU of 8).
+- **File viewer edit mode** — ✎ Edit turns the read-only viewer into a basic
+  editor (● modified, Save or ctrl+s, atomic write that refuses to clobber a
+  file changed on disk), with **Open in editor…** beside it for the real IDE.
+- **Resume agents after a reboot** — Hibernate learned copilot, omp/pi and
+  opencode: sessions are resolved per tool and cached per process, so an
+  automatic resume continues the conversation instead of relaunching a bare
+  command. `after_restart: "auto"` in Hibernate's settings.
 - **Sidebar nav removed** — no Automations / Issues / Mod settings column; mods `automations`,
   `sidebar-nav` deleted, `better-config` not vendored. The footer's Settings button opens
   Herdr's own settings.
@@ -60,8 +82,15 @@ By hand:
    `herdr-app do layout.switch '{"name":"orca"}'`. `ctrl-shift-l` switches back.
 
 Needs `git` and a logged-in `gh`. Usage limits read the `claude` and `codex` CLIs; desktop
-notifications use `terminal-notifier` when installed. Built and
-tested on macOS with Herdr 0.1.13.
+notifications use `terminal-notifier` when installed (macOS).
+
+**Platform notes.** Upstream was built on macOS; this fork is developed and used daily on
+**Windows 11 ARM64 with Herdr 0.1.16**, where every feature above was tested. The key bindings
+come in both spellings (`cmd-*` for macOS, `ctrl-*` for Windows/Linux). A few mod behaviors
+were fixed for Windows along the way (forward/backslash path normalization for git-ignored
+dimming, junction/symlinked directories expand, a child-process folder picker where the
+native `pickFolder` dialog hangs on some setups). macOS should keep working; `terminal-notifier`
+and the resource meter's `sysctl` call remain macOS-flavored and degrade gracefully elsewhere.
 
 ## Updating this repo
 
