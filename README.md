@@ -85,7 +85,7 @@ Needs `git` and a logged-in `gh`. Usage limits read the `claude` and `codex` CLI
 notifications use `terminal-notifier` when installed (macOS).
 
 **Platform notes.** Upstream was built on macOS; this fork is developed and used daily on
-**Windows 11 ARM64 with Herdr 0.1.16**, where every feature above was tested. The key bindings
+**Windows 11 ARM64 with Herdr 0.1.17**, where every feature above was tested (0.1.16 before it; the layout and all vendored mods re-checked clean on each). The key bindings
 come in both spellings (`cmd-*` for macOS, `ctrl-*` for Windows/Linux). A few mod behaviors
 were fixed for Windows along the way (forward/backslash path normalization for git-ignored
 dimming, junction/symlinked directories expand, a child-process folder picker where the

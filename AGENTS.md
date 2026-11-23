@@ -157,4 +157,4 @@ this repo mirrors it. The direction of truth:
   the button changes.
 - Windows 11 ARM64, PowerShell 7, Git for Windows, Zed under
   `%LOCALAPPDATA%\Programs\Zed` (its `zed` on PATH is a bash shim — use
-  `bin\Zed.exe`). Herdr 0.1.16; mods upstream targeted 0.1.13 and pass.
+  `bin\Zed.exe`). Herdr 0.1.17 (verified: `herdr-app check` on every mod, layout round-trip, panels render); mods upstream targeted 0.1.13.
