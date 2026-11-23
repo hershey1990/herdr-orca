@@ -1,7 +1,12 @@
 // The diff: opening a file in the centre tab, reading it, and drawing it.
 import { div } from "gpui-kit";
 import { h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, readTextFile, theme, shared, setShared, run, layout } from "herdr";
+import { image } from "gpui-kit";
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+const isImagePath = (path) => IMAGE_EXT.test(path ?? "");
+import { spaces, panes, readTextFile, theme, shared, setShared, run, layout, appHome } from "herdr";
+import * as fs from "fs/promises";
 import { diffRows, splitDiffRows, conflictRows } from "../git/model.js";
 import { WHOLE_FILE_LINES, languageOf, syntaxColors, tokenizeLine } from "../syntax.js";
 import { TEXT, SIZE, codeFont, codeSize, FileIcon, Panel, PaneBar, DiffStat, Message, TextButton } from "./ui.js";
@@ -195,6 +200,7 @@ export const diffMethods = {
 
   showRows(rows, paired) {
     this.truncated = false;
+    this.imagePath = null;
     this.rows = rows;
     this.pairedRows = paired;
     const lengths = rows.map((row) => row.text.length);
@@ -225,10 +231,12 @@ export const diffMethods = {
         this.freshLines = content.freshLines ?? null;
         this.conflictCount = content.conflict?.count ?? 0;
         if (content.conflict) this.showRows(content.conflict.inline, content.conflict.split);
+        else if (content.image) this.showImage(content.image);
         else this.showLines(content.lines);
       } catch (error) {
         if (token === this.diffToken) {
           this.rows = [];
+          this.imagePath = null;
           this.note = error.message;
         }
       } finally {
@@ -253,8 +261,30 @@ export const diffMethods = {
     return { lines: await this.readDiffLines(file, path, root, on) };
   },
 
+  // Images render through an SVG wrapper: same trick the Files viewer uses.
+  // The runtime's fs.writeFile only accepts strings, so the bytes are
+  // base64'd and embedded as a data URI inside an SVG text file under this
+  // mod's data folder. Returns the app-relative path for image().
+  async loadImage(path, root, on) {
+    const ext = (path.match(IMAGE_EXT)?.[1] ?? "png").toLowerCase();
+    const dir = `${appHome().replaceAll("\\\\", "/")}/data/better-changes`;
+    await fs.mkdir(dir, { recursive: true });
+    const name = `diff-${path.replaceAll("\\\\", "/").split("/").at(-1).replace(/[^A-Za-z0-9._-]/g, "_")}.svg`;
+    const bin = await fs.readFile(`${root.replaceAll("\\\\", "/")}/${path.replaceAll("\\\\", "/")}`);
+    let binary = "";
+    for (let i = 0; i < bin.length; i += 0x8000) binary += String.fromCharCode(...bin.subarray(i, i + 0x8000));
+    const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="100%" height="100%" xlink:href="data:${mime};base64,${btoa(binary)}"/></svg>`;
+    await fs.writeFile(`${dir}/${name}`, svg);
+    return `data/better-changes/${name}`;
+  },
+
   // An untracked file has nothing to diff against, so every line is an addition.
   async readFreshFile(path, root, on) {
+    if (isImagePath(path)) {
+      const rel = await this.loadImage(path, root, on).catch((e) => null);
+      return rel ? { image: rel } : { lines: ["Cannot load this image."] };
+    }
     const text = await readTextFile(`${root}/${path}`, { on });
     if (text === null)
       return { lines: ["Cannot preview this file: binary, too large, or unreadable."] };
@@ -280,7 +310,16 @@ export const diffMethods = {
     return [file.binary ? "Binary file changed" : "No text diff (mode or submodule change)"];
   },
 
+  showImage(appPath) {
+    this.imagePath = appPath;
+    this.rows = [];
+    this.pairedRows = [];
+    this.truncated = false;
+    this.width = 0;
+  },
+
   showLines(lines) {
+    this.imagePath = null;
     const { diff_lines: maxLines, line_length: maxLength } = this.settings.limits;
     this.truncated = lines.length > maxLines || lines.some((line) => line.length > maxLength);
     const visible = lines
@@ -394,6 +433,9 @@ export const diffMethods = {
   },
 
   renderDiffRows(split) {
+    if (this.imagePath)
+      return v_flex().flex_1().min_h(0).items_center().justify_center().overflow_y_scroll()
+        .child(image(this.imagePath).max_w_full().max_h_full());
     const rows = split ? (this.pairedRows ?? []) : this.rows;
     const listId = `diff-${this.context}-${this.path}-${this.scope}-${this.diffLayout}`;
     const list = v_virtual_list(
