@@ -54,6 +54,9 @@ this repo mirrors it. The direction of truth:
   `writeTextFile(path, text, expected)` — expected is the disk text, so a
   file changed on disk is refused, not clobbered. Remote files stay
   read-only.
+- **Image preview** — clicking a PNG/JPEG/GIF/WebP/BMP in Files or in the
+  Changes list renders it (natural size, scaled down to fit). Built on the
+  SVG data-URI wrapper described in trap 15.
 - **Hibernate resume for copilot/omp/pi/opencode** (`mods/hibernate/core.js`):
   `kind()` classifies them; sessions resolve per tool (copilot reads
   `~/.copilot/open-sessions-state.json`; omp/pi scan
@@ -107,6 +110,30 @@ this repo mirrors it. The direction of truth:
     and `mod.open` on an already-open dialog is a no-op (close it first).
     For data instead of pixels, have a probe mod `writeTextFile` a report to
     disk and read it here.
+13. **Undefined identifiers in render paths are invisible to `check`.** A
+    reference error (a `folder` variable out of scope, `v_flex` not
+    imported) is a *runtime* failure: `node --check` and `herdr-app check`
+    both pass, then the panel dies with "view could not be re-rendered" and
+    the console line names file+line only in the toast. After touching a
+    render path, grep every external identifier you used against the
+    file's imports — twice now this cost a round trip (`my-menu`'s `folder`,
+    `diff.js`'s `v_flex`).
+14. **`readTextFile` throws on binary files** ("stream did not contain valid
+    UTF-8") — it does not return null. Anything that reads an arbitrary
+    file (diff views, viewers) must check the extension first or catch.
+15. **Images: the display pipeline.** GPUI's `image()` takes app-relative
+    paths only, and this runtime cannot move binary bytes between files:
+    `fs.writeFile` with a Uint8Array/Buffer writes **0 bytes** (only strings
+    go through), `readTextFile` throws on binary, `fs.copyFile` does not
+    exist. The working pattern (Files viewer + Changes diff): node
+    `fs.readFile` the bytes -> base64 with `btoa` over 32k chunks ->
+    `<svg><image xlink:href="data:...;base64,..."/></svg>` written as a
+    **text** file under `data/<mod>/` -> `image()` renders the SVG. Two
+    traps inside the trap: an SVG without explicit width/height has a
+    300x150 default viewport (parse the real size from the file header —
+    PNG IHDR, GIF, BMP, JPEG SOF), and **the renderer caches decoded images
+    per path** — regenerating the same filename keeps the stale size, so
+    put the byte length in the filename (content-addressed) to bust it.
 
 ## Testing rules
 
