@@ -29,6 +29,8 @@ import {
   SplitTrigger,
 } from "./ui.js";
 
+const SHOW_ROWS = 150;
+
 const VIEWS = [
   { id: "flat", label: "Flat", icon: "flat" },
   { id: "tree", label: "Tree", icon: "tree" },
@@ -181,11 +183,63 @@ export const sidebarMethods = {
     });
   },
 
+  // The changes list as flat spec rows: group headers, folders, files.
+  // Built once per state change (not per render), consumed by the virtual
+  // list below — a large repository (840+ files) stays a small frame.
+  // The changes list as flat spec rows: group headers, folders, files.
+  // Built once per state change (not per render), consumed by the virtual
+  // list below — a large repository (840+ files) stays a small frame.
+  // Large repositories: rendering every row in one frame breaks past a few
+  // thousand GPUI elements ("view could not be re-rendered"). Each group
+  // shows at most SHOW_ROWS rows; a Show-all row renders the rest. Groups
+  // beyond the first stay collapsed until opened, which keeps the initial
+  // frame small without losing any interaction — everything stays the
+  // ordinary clickable rows, no virtual-list handler restrictions.
+  changesSpec() {
+    const spec = [];
+    const conflicts = this.files.filter((f) => f.conflict);
+    const unstaged = this.files.filter((f) => f.unstaged && !f.conflict);
+    const staged = this.files.filter((f) => f.staged);
+    const committed = this.committed?.total ? this.committed : null;
+    if (!conflicts.length && !unstaged.length && !staged.length && !committed) spec.push({ kind: "empty" });
+    this.groupsDrawn = 0;
+    const shown = this.shownRows ?? {};
+    const group = (scope, label, files, detail, count) => {
+      if (!files.length) return;
+      const collapsed = this.collapsed.has(scope);
+      const bulk = {
+        unstaged: { action: "stage", icon: "plus", label: "Stage all" },
+        staged: { action: "unstage", icon: "minus", label: "Unstage all" },
+      }[scope];
+      spec.push({ kind: "group", scope, label, count: count ?? files.length, detail, danger: scope === "conflict",
+        divided: this.groupsDrawn++ > 0, collapsed, bulk });
+      if (collapsed) return;
+      const cap = shown[scope] ?? SHOW_ROWS;
+      const draw = files.slice(0, cap);
+      if (this.view === "flat") {
+        for (const file of draw) spec.push({ kind: "file", file, scope, depth: 0 });
+      } else {
+        const closed = new Set([...this.closed].filter((k) => k.startsWith(`${scope}:`)).map((k) => k.slice(scope.length + 1)));
+        for (const row of fileTree(draw, closed))
+          spec.push(row.kind === "folder"
+            ? { kind: "folder", path: row.path, name: row.name, scope, depth: row.depth, closed: closed.has(row.path) }
+            : { kind: "file", file: row.file, scope, depth: row.depth });
+      }
+      if (files.length > draw.length)
+        spec.push({ kind: "more", scope, shown: draw.length, total: files.length });
+    };
+    group("conflict", "Conflicts", conflicts);
+    group("staged", "Staged", staged);
+    group("unstaged", "Unstaged", unstaged);
+    if (committed) group("committed", "Committed", committed.files, `not on ${committed.name}`, committed.total);
+    return spec;
+  },
+
   renderChanges() {
-    const list = v_flex().id("changes-list").flex_1().min_h(0).overflow_y_scrollbar().p(6);
+    const list = v_flex().id("changes-list").flex_1().min_h(0).p(6).overflow_y_scrollbar();
     if (this.error) {
-      // A stable state, not a flicker: the location is anchored per space, so
-      // this banner means the space's folder itself holds no repository (yet).
+      // A stable state: the location is anchored per space, so this banner
+      // means the space's folder itself holds no repository (yet).
       const t = theme();
       list.child(
         v_flex().gap(4).p(8).child(Message(this.error, true)).child(
@@ -194,25 +248,51 @@ export const sidebarMethods = {
       );
       return list;
     }
-    const conflicts = this.files.filter((f) => f.conflict);
-    const unstaged = this.files.filter((f) => f.unstaged && !f.conflict);
-    const staged = this.files.filter((f) => f.staged);
-    const committed = this.committed?.total ? this.committed : null;
-    if (!conflicts.length && !unstaged.length && !staged.length && !committed)
-      list.child(Message(this.loading || !this.root ? "Loading changes…" : "No changes"));
-    this.groupsDrawn = 0;
-    this.addGroup(list, "conflict", "Conflicts", conflicts);
-    this.addGroup(list, "staged", "Staged", staged);
-    this.addGroup(list, "unstaged", "Unstaged", unstaged);
-    if (committed)
-      this.addGroup(
-        list,
-        "committed",
-        "Committed",
-        committed.files,
-        `not on ${committed.name}`,
-        committed.total,
-      );
+    if (this.loading && !this.files.length) {
+      list.child(Message("Loading changes…"));
+      return list;
+    }
+    const t = theme();
+    const spec = this.changesSpec();
+    if (!spec.length) list.child(Message("No changes"));
+    for (const row of spec) {
+      if (row.kind === "empty") { list.child(Message(this.loading ? "Loading changes…" : "No changes")); continue; }
+      if (row.kind === "group") {
+        const bulk = row.bulk && TextButton({
+          id: `${row.bulk.action}-all`,
+          icon: row.bulk.icon,
+          label: row.bulk.label,
+          onClick: (cx) => this.indexAction(row.bulk.action, null, cx),
+        });
+        list.child(GroupHeader({
+          id: `group-${row.scope}`,
+          label: row.label,
+          count: row.count,
+          detail: row.detail,
+          danger: row.danger,
+          collapsed: row.collapsed,
+          divided: row.divided,
+          action: bulk,
+          onClick: (cx) => this.toggleGroup(row.scope, cx),
+        }));
+        continue;
+      }
+      if (row.kind === "folder") {
+        list.child(this.folderRow({ path: row.path, name: row.name, depth: row.depth }, row.scope, row.closed));
+        continue;
+      }
+      if (row.kind === "more") {
+        list.child(
+          h_flex().id(`more-${row.scope}`).h(SIZE.row).flex_none().px(8).gap(7).items_center().rounded(7)
+            .cursor_pointer().hover((s) => s.bg(t.hover))
+            .on_click((_e, cx) => { this.shownRows = { ...(this.shownRows ?? {}), [row.scope]: row.total }; cx.notify(); })
+            .child(div().text_size(TEXT.caption).text_color(t.accent)
+              .child(`Show all ${row.total.toLocaleString()} (${row.shown.toLocaleString()} shown)`)),
+        );
+        continue;
+      }
+      list.child(this.fileRow(row.file, row.scope, row.depth));
+    }
     const limit = this.settings.limits.files;
     if (this.total > limit)
       list.child(Message(`Showing the first ${limit.toLocaleString()} changed files.`));
@@ -397,56 +477,6 @@ export const sidebarMethods = {
       trigger: SplitTrigger({ id: "commit-options", label: "Commit options" }),
       children: options,
     });
-  },
-
-  addGroup(list, scope, label, files, detail, count = files.length) {
-    if (!files.length) return;
-    const collapsed = this.collapsed.has(scope);
-    const bulk = {
-      unstaged: { action: "stage", icon: "plus", label: "Stage all" },
-      staged: { action: "unstage", icon: "minus", label: "Unstage all" },
-    }[scope];
-    list.child(
-      GroupHeader({
-        id: `group-${scope}`,
-        label,
-        count,
-        detail,
-        danger: scope === "conflict",
-        collapsed,
-        divided: this.groupsDrawn++ > 0,
-        action:
-          bulk &&
-          TextButton({
-            id: `${bulk.action}-all`,
-            icon: bulk.icon,
-            label: bulk.label,
-            onClick: (cx) => this.indexAction(bulk.action, null, cx),
-          }),
-        onClick: (cx) => this.toggleGroup(scope, cx),
-      }),
-    );
-    if (collapsed) return;
-    this.addRows(list, scope, files);
-  },
-
-  // A group's files, flat or nested as chosen in the options menu.
-  addRows(list, scope, files) {
-    if (this.view === "flat") {
-      for (const file of files) list.child(this.fileRow(file, scope, 0));
-      return;
-    }
-    const closed = new Set(
-      [...this.closed]
-        .filter((key) => key.startsWith(`${scope}:`))
-        .map((key) => key.slice(scope.length + 1)),
-    );
-    for (const row of fileTree(files, closed))
-      list.child(
-        row.kind === "folder"
-          ? this.folderRow(row, scope, closed.has(row.path))
-          : this.fileRow(row.file, scope, row.depth),
-      );
   },
 
   folderRow(row, scope, closed) {

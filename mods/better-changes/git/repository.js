@@ -127,6 +127,7 @@ export const gitMethods = {
     this.error = null;
     this.note = null;
     this.watched = null;
+    this.shownRows = {};
     this.resetCommits();
     if (this.input) {
       this.message = "";
