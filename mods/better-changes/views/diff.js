@@ -3,6 +3,28 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { image } from "gpui-kit";
 
+// Intrinsic size from the file header, so the SVG viewport matches the image
+// (an SVG without width/height defaults to 300x150 and pictures render tiny).
+function imageSize(b) {
+  const be32 = (o) => ((b[o] << 24) >>> 0) + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
+  const le32 = (o) => ((b[o]) + (b[o + 1] << 8) + (b[o + 2] << 16) + ((b[o + 3] << 24) >>> 0)) >>> 0;
+  const le16 = (o) => b[o] + (b[o + 1] << 8);
+  const be16 = (o) => (b[o] << 8) + b[o + 1];
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { w: be32(16), h: be32(20) };
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return { w: le16(6), h: le16(8) };
+  if (b[0] === 0x42 && b[1] === 0x4d) return { w: le32(18), h: Math.abs((b[22] << 24 >> 24)) };
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let o = 2;
+    while (o + 9 < b.length) {
+      if (b[o] !== 0xff) { o += 1; continue; }
+      const m = b[o + 1];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: be16(o + 5), w: be16(o + 7) };
+      o += 2 + be16(o + 2);
+    }
+  }
+  return null;
+}
+
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 const isImagePath = (path) => IMAGE_EXT.test(path ?? "");
 import { spaces, panes, readTextFile, theme, shared, setShared, run, layout, appHome } from "herdr";
@@ -274,7 +296,9 @@ export const diffMethods = {
     let binary = "";
     for (let i = 0; i < bin.length; i += 0x8000) binary += String.fromCharCode(...bin.subarray(i, i + 0x8000));
     const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="100%" height="100%" xlink:href="data:${mime};base64,${btoa(binary)}"/></svg>`;
+    const size = imageSize(bin);
+    const dim = size ? ` width="${size.w}" height="${size.h}" viewBox="0 0 ${size.w} ${size.h}"` : "";
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"${dim}><image width="100%" height="100%" xlink:href="data:${mime};base64,${btoa(binary)}"/></svg>`;
     await fs.writeFile(`${dir}/${name}`, svg);
     return `data/better-changes/${name}`;
   },
