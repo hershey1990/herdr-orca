@@ -3,15 +3,20 @@
 // view into a basic editor: save with the button or ctrl+s, ● modified when
 // the buffer differs from the file. Open-in-editor stays one click away for
 // real editing.
-import { div } from "gpui-kit";
+import { div, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView } from "gpui-base";
-import { props, readTextFile, writeTextFile, watchFolder, theme, settings, focused, spaces, openOverlay } from "herdr";
+import { props, readTextFile, writeTextFile, watchFolder, theme, settings, focused, spaces, openOverlay, appHome } from "herdr";
+import * as fs from "fs/promises";
 import { openFile } from "./tabs.js";
 import { available } from "./items.js";
 import { syntaxColors, languageFor } from "./syntax.js";
 
 const LIMIT = 400000;
 const isMarkdown = path => /\.(md|markdown|mdx)$/i.test(path ?? "");
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+const isImage = path => IMAGE_EXT.test(path ?? "");
+const isSvg = path => /\.svg$/i.test(path ?? "");
+
 const dirname = path => path.slice(0, path.lastIndexOf("/")) || "/";
 
 // A relative or absolute link, resolved against the current file's folder.
@@ -32,7 +37,7 @@ export default class Viewer {
   init(_props, cx) {
     const p = props() ?? {};
     this.on = p.on ?? null;
-    this.file = p.file; this.source = false;
+    this.file = p.file; this.source = false; this.imagePath = null;
     this.editing = false; this.dirty = false; this.saving = false; this.saveError = null;
     if (!this.file) { this.error = "No file to show"; return; }
     this.load(cx);
@@ -46,10 +51,44 @@ export default class Viewer {
       syntax: this.syntax });
   }
 
+  // Images render in place: GPUI's image() takes app-relative paths, so the
+  // file is copied into the app's data folder once (per mtime) and shown.
+  // SVGs ship as-is (text-safe, no copy needed is false — they are binary
+  // to readTextFile too, so same copy). Remote machines: not copied, the
+  // old binary message stands.
+  // Images render through an SVG wrapper: GPUI's image() loads app-
+  // relative files, but the runtime's fs.writeFile only accepts strings
+  // (Uint8Array/Buffer writes come out empty) and herdr's readTextFile
+  // returns null for binary. So: node fs reads the bytes, they are
+  // base64'd (btoa over chunks), embedded as a data URI inside an SVG
+  // text file under this mod's data folder, and image() shows that SVG.
+  async loadImage(file) {
+    const ext = (file.match(IMAGE_EXT)?.[1] ?? "png").toLowerCase();
+    const dir = `${appHome().replaceAll("\\\\", "/")}/data/files-open-with`;
+    await fs.mkdir(dir, { recursive: true });
+    const name = `img-${file.replaceAll("\\\\", "/").split("/").at(-1).replace(/[^A-Za-z0-9._-]/g, "_")}.svg`;
+    const bin = await fs.readFile(file.replaceAll("\\\\", "/"));
+    let binary = "";
+    for (let i = 0; i < bin.length; i += 0x8000) binary += String.fromCharCode(...bin.subarray(i, i + 0x8000));
+    const mime = ext === "jpg" ? "image/jpeg" : ext === "svg" ? "image/svg+xml" : `image/${ext}`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image width="100%" height="100%" xlink:href="data:${mime};base64,${btoa(binary)}"/></svg>`;
+    await fs.writeFile(`${dir}/${name}`, svg);
+    return `data/files-open-with/${name}`;
+  }
+
   load(cx) {
     const file = this.file;
     cx.spawn(async cx => {
       try {
+        if (isImage(file) && !isSvg(file) && !this.on) {
+          const rel = await this.loadImage(file);
+          if (this.closed || this.file !== file) return;
+          this.imagePath = rel; this.code?.release(); this.code = null;
+          this.error = null; this.editing = false; this.dirty = false;
+          cx.notify();
+          return;
+        }
+        this.imagePath = null;
         const raw = await readTextFile(file, { on: this.on });
         if (this.closed || this.file !== file) return;
         if (raw === null) { this.error = "This file is no longer available"; return; }
@@ -65,7 +104,7 @@ export default class Viewer {
         this.text = text; this.error = null;
         this.code = this.makeState(text, !this.editing);
         this.code.on("change", () => this.dirty = this.code.value() !== this.text);
-      } catch { if (this.file === file) this.error = "Cannot preview this file (binary, too large, or unreadable)"; }
+      } catch (e) { if (this.file === file) this.error = `Cannot preview this file: ${String(e).slice(0, 160)}`; }
       finally { if (!this.closed) cx.notify(); }
     });
   }
@@ -161,6 +200,9 @@ export default class Viewer {
   }
 
   body(t) {
+    if (this.imagePath)
+      return v_flex().flex_1().min_h(0).items_center().justify_center().p(12).overflow_y_scroll()
+        .child(image(this.imagePath).max_w_full().max_h_full());
     if (!this.code) return div().p(16).text_color(t.dim).child(this.error || "Loading file…");
     if (!isMarkdown(this.file) || this.source) return Editor.new(this.code).flex_1().min_h(0);
     return v_flex().id(`fow-md-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().px(24).py(16)
